@@ -1,7 +1,7 @@
 import { TOTAL_QUESTIONS, type Question } from '../data/questions';
 import type { Profile } from './api';
 
-const PROFILE_KEYS = ['last_name', 'first_name', 'middle_name', 'course', 'student_id', 'phone'] as const;
+const PROFILE_KEYS = ['last_name', 'first_name', 'middle_name', 'course', 'faculty', 'student_id', 'phone'] as const;
 
 type Tool = {
   name: string; title: string; description: string; inputSchema: object;
@@ -21,7 +21,7 @@ export function registerQuizTool(complete: (answers: number[], qs?: readonly Que
   const tool: Tool = {
     name: 'complete_sha_quiz', title: 'Завершить тест про Школу Актива',
     description: 'Complete the 10-question School of Activ quiz using canonical answer indices (original option order in src/data/questions.ts), per-question times in ms, and the contest profile (name, course, student ID, phone). Shows the score and, inside Telegram, saves it. One attempt per user. Do not invent user answers or profile data.',
-    inputSchema: { type: 'object', properties: { answers: { type: 'array', minItems: TOTAL_QUESTIONS, maxItems: TOTAL_QUESTIONS, items: { type: 'integer', minimum: 0, maximum: 4 } }, times: { type: 'array', minItems: TOTAL_QUESTIONS, maxItems: TOTAL_QUESTIONS, items: { type: 'integer', minimum: 0 } }, profile: { type: 'object', properties: { last_name: { type: 'string' }, first_name: { type: 'string' }, middle_name: { type: 'string' }, course: { type: 'string' }, student_id: { type: 'string' }, phone: { type: 'string' } }, required: [...PROFILE_KEYS], additionalProperties: false } }, required: ['answers', 'times', 'profile'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { answers: { type: 'array', minItems: TOTAL_QUESTIONS, maxItems: TOTAL_QUESTIONS, items: { type: 'integer', minimum: 0, maximum: 4 } }, times: { type: 'array', minItems: TOTAL_QUESTIONS, maxItems: TOTAL_QUESTIONS, items: { type: 'integer', minimum: 0 } }, profile: { type: 'object', properties: { last_name: { type: 'string' }, first_name: { type: 'string' }, middle_name: { type: 'string' }, course: { type: 'string' }, faculty: { type: 'string' }, student_id: { type: 'string' }, phone: { type: 'string' } }, required: [...PROFILE_KEYS], additionalProperties: false } }, required: ['answers', 'times', 'profile'], additionalProperties: false },
     annotations: { readOnlyHint: false, untrustedContentHint: false },
     async execute(input) {
       if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Expected answers, times and profile');

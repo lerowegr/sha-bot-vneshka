@@ -24,7 +24,14 @@ QUESTIONS = [
 ]
 MAX_TIME_MS = 3_600_000
 
-PROFILE_FIELDS = ("last_name", "first_name", "middle_name", "course", "student_id", "phone")
+PROFILE_FIELDS = ("last_name", "first_name", "middle_name", "course", "faculty", "student_id", "phone")
+COURSES = ("b1", "b2", "b3", "b4", "m1", "m2")
+COURSE_LABELS = {"b1": "Бакалавриат, 1 курс", "b2": "Бакалавриат, 2 курс",
+                 "b3": "Бакалавриат, 3 курс", "b4": "Бакалавриат, 4 курс",
+                 "m1": "Магистратура, 1 курс", "m2": "Магистратура, 2 курс"}
+# Старые числовые курсы (1..6) маппятся в новую сетку для сводок.
+LEGACY_COURSES = {1: "b1", 2: "b2", 3: "b3", 4: "b4", 5: "m1", 6: "m2"}
+FACULTIES = ("ИТиАБД", "ВШУ", "МЭО", "СНиМК", "ФинФак", "ЮрФак", "НАБ", "ФЭБ")
 _NAME_RE = re.compile(r"^[A-Za-zА-Яа-яЁё\- ]{1,60}$")
 _STUDENT_ID_RE = re.compile(r"^[A-Za-zА-Яа-яЁё0-9\-]{4,20}$")
 
@@ -41,17 +48,19 @@ def validate_profile(profile: object) -> dict:
     first_name = _clean_name(profile["first_name"], "first_name")
     middle_name = _clean_name(profile["middle_name"], "middle_name")
     course = profile["course"]
-    if isinstance(course, str) and course.isdigit():
-        course = int(course)
-    if not isinstance(course, int) or isinstance(course, bool) or not 1 <= course <= 6:
-        raise ValueError("Course must be an integer 1..6")
+    if course not in COURSES:
+        raise ValueError("Course must be one of b1..b4, m1..m2")
+    faculty = profile["faculty"]
+    if faculty not in FACULTIES:
+        raise ValueError("Unknown faculty")
     student_id = profile["student_id"]
     if not isinstance(student_id, str) or not _STUDENT_ID_RE.match(student_id.strip()):
         raise ValueError("Bad student_id")
     phone = _normalize_phone(profile["phone"])
     return {
         "last_name": last_name, "first_name": first_name, "middle_name": middle_name,
-        "course": course, "student_id": student_id.strip(), "phone": phone,
+        "course": course, "faculty": faculty,
+        "student_id": student_id.strip(), "phone": phone,
     }
 
 
@@ -131,7 +140,8 @@ class QuizDatabase:
                     last_name TEXT NULL,
                     first_name TEXT NULL,
                     middle_name TEXT NULL,
-                    course INTEGER NULL,
+                    course TEXT NULL,
+                    faculty TEXT NULL,
                     student_id TEXT NULL,
                     phone TEXT NULL,
                     total_ms INTEGER NULL
@@ -140,9 +150,9 @@ class QuizDatabase:
             # Add profile columns to tables created before the contest form.
             async with db.execute("PRAGMA table_info(quiz_users)") as cursor:
                 columns = {row[1] for row in await cursor.fetchall()}
-            for column in ("last_name", "first_name", "middle_name", "course", "student_id", "phone", "total_ms"):
+            for column in ("last_name", "first_name", "middle_name", "course", "faculty", "student_id", "phone", "total_ms"):
                 if column not in columns:
-                    await db.execute(f"ALTER TABLE quiz_users ADD COLUMN {column} {'INTEGER' if column in ('course', 'total_ms') else 'TEXT'} NULL")
+                    await db.execute(f"ALTER TABLE quiz_users ADD COLUMN {column} {'INTEGER' if column == 'total_ms' else 'TEXT'} NULL")
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS quiz_answers (
                     telegram_user_id INTEGER NOT NULL,
@@ -167,9 +177,11 @@ class QuizDatabase:
                         last_name TEXT NULL,
                         first_name TEXT NULL,
                         middle_name TEXT NULL,
-                        course INTEGER NULL,
+                        course TEXT NULL,
+                        faculty TEXT NULL,
                         student_id TEXT NULL,
-                        phone TEXT NULL
+                        phone TEXT NULL,
+                        total_ms INTEGER NULL
                     )
                 """)
                 await db.execute("""
@@ -231,10 +243,12 @@ class QuizDatabase:
                 await db.execute("""
                     INSERT INTO quiz_users
                         (telegram_user_id, telegram_username, result, completed_at,
-                         last_name, first_name, middle_name, course, student_id, phone, total_ms)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         last_name, first_name, middle_name, course, faculty,
+                         student_id, phone, total_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (user_id, username, result_id, now, clean["last_name"], clean["first_name"],
-                      clean["middle_name"], clean["course"], clean["student_id"], clean["phone"], total_ms))
+                      clean["middle_name"], clean["course"], clean["faculty"],
+                      clean["student_id"], clean["phone"], total_ms))
                 await db.executemany("""
                     INSERT INTO quiz_answers (telegram_user_id, q_index, correct, time_ms)
                     VALUES (?, ?, ?, ?)
@@ -245,10 +259,10 @@ class QuizDatabase:
                 await db.execute("""
                     UPDATE quiz_users SET telegram_username = ?, completed_at = ?,
                         last_name = ?, first_name = ?, middle_name = ?,
-                        course = ?, student_id = ?, phone = ?
+                        course = ?, faculty = ?, student_id = ?, phone = ?
                     WHERE telegram_user_id = ?
                 """, (username, now, clean["last_name"], clean["first_name"], clean["middle_name"],
-                      clean["course"], clean["student_id"], clean["phone"], user_id))
+                      clean["course"], clean["faculty"], clean["student_id"], clean["phone"], user_id))
                 await db.commit()
                 return existing["result"], "profile_updated"
             raise AlreadyCompleted("Participant already completed the quiz")
@@ -320,10 +334,20 @@ class QuizDatabase:
                 dup_student_ids = (await cursor.fetchone())[0]
             async with db.execute("""
                 SELECT course, COUNT(*) FROM quiz_users
-                WHERE course IS NOT NULL GROUP BY course ORDER BY course
+                WHERE course IS NOT NULL GROUP BY course
             """) as cursor:
-                by_course = {course: 0 for course in range(1, 7)}
-                by_course.update({row[0]: row[1] for row in await cursor.fetchall()})
+                by_course = {course: 0 for course in COURSES}
+                for raw, count in await cursor.fetchall():
+                    key = LEGACY_COURSES.get(raw, raw) if isinstance(raw, int) else raw
+                    if key in by_course:
+                        by_course[key] += count
+            async with db.execute("""
+                SELECT faculty, COUNT(*) FROM quiz_users
+                WHERE faculty IS NOT NULL GROUP BY faculty
+            """) as cursor:
+                by_faculty = {faculty: 0 for faculty in FACULTIES}
+                by_faculty.update({row[0]: row[1] for row in await cursor.fetchall()
+                                   if row[0] in FACULTIES})
             async with db.execute("""
                 SELECT q_index, COUNT(*), COALESCE(SUM(correct), 0), COALESCE(AVG(time_ms), 0)
                 FROM quiz_answers GROUP BY q_index
@@ -345,5 +369,6 @@ class QuizDatabase:
             return {"total": sum(by_result.values()), "by_result": by_result,
                     "eligible": eligible, "dup_phones": dup_phones,
                     "dup_student_ids": dup_student_ids, "by_course": by_course,
+                    "by_faculty": by_faculty,
                     "questions": questions, "timed_count": timed_count,
                     "avg_total_ms": avg_total_ms}

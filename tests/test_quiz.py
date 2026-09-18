@@ -18,7 +18,8 @@ TOKEN = "123456789:test-token-for-local-tests-only"
 
 def prof(i=1, **over):
     base = {'last_name': 'Иванов', 'first_name': 'Иван', 'middle_name': 'Иванович',
-            'course': 2, 'student_id': f'10000{i}', 'phone': f'+7900000000{i}'}
+            'course': 'b2', 'faculty': 'СНиМК',
+            'student_id': f'10000{i}', 'phone': f'+7900000000{i}'}
     base.update(over)
     return base
 
@@ -82,7 +83,8 @@ async def test_database_upsert_and_concurrency(tmp_path):
     assert summary["questions"][0]["correct"] == 6
     assert summary["questions"][0]["pct"] == 100.0
     assert summary["avg_total_ms"] == sum(times)
-    assert summary["by_course"][2] == 6
+    assert summary["by_course"]['b2'] == 6
+    assert summary["by_faculty"]['СНиМК'] == 6
 
 
 def test_answers_times_and_scoring():
@@ -107,10 +109,11 @@ def test_profile_validation():
     assert validate_profile(prof(1))["phone"] == "+79000000001"
     assert validate_profile(prof(1, phone="89000000001"))["phone"] == "+79000000001"
     assert validate_profile(prof(1, phone="9000000001"))["phone"] == "+79000000001"
-    assert validate_profile(prof(1, course="3"))["course"] == 3
+    assert validate_profile(prof(1, course="m1"))["course"] == "m1"
     for bad in [None, [], {**prof(1), "extra": 1},
                 prof(1, last_name=""), prof(1, first_name="123"),
-                prof(1, course=0), prof(1, course=7), prof(1, course="x"),
+                prof(1, course=0), prof(1, course=7), prof(1, course="x"), prof(1, course="b5"),
+                prof(1, faculty="Хогвартс"), prof(1, faculty=""),
                 prof(1, student_id="ab"), prof(1, phone="123"),
                 prof(1, phone=""), {k: v for k, v in prof(1).items() if k != "phone"}]:
         with pytest.raises(ValueError):

@@ -22,7 +22,8 @@ TOKEN = '123456789:local-test-token'
 
 def prof(i=1, **over):
     base = {'last_name': 'Иванов', 'first_name': 'Иван', 'middle_name': 'Иванович',
-            'course': 2, 'student_id': f'10000{i}', 'phone': f'+7900000000{i}'}
+            'course': 'b2', 'faculty': 'СНиМК',
+            'student_id': f'10000{i}', 'phone': f'+7900000000{i}'}
     base.update(over)
     return base
 
@@ -109,14 +110,15 @@ async def test_stats_and_opt_out_survive_retake(storage):
 def test_csv_has_latest_fields_and_neutralizes_formulas():
     raw = participants_csv([{'telegram_user_id': 123, 'telegram_username': '=danger',
                              'result': 'score_7', 'last_name': 'Иванова', 'first_name': 'Анна',
-                             'middle_name': 'Сергеевна', 'course': 2, 'student_id': '100001',
+                             'middle_name': 'Сергеевна', 'course': 'b2', 'faculty': 'СНиМК',
+                             'student_id': '100001',
                              'phone': '+79000000001', 'completed_at': '2026-09-08T00:00:00+00:00'}])
     rows = list(csv.reader(io.StringIO(raw.decode('utf-8-sig'))))
-    assert rows[0][:10] == ['telegram_user_id', 'telegram_username', 'result', 'last_name',
-                            'first_name', 'middle_name', 'course', 'student_id', 'phone', 'total_time_s']
-    assert rows[0][10:20] == [f'q{i}' for i in range(1, 11)]
-    assert rows[0][20:30] == [f'q{i}_s' for i in range(1, 11)]
-    assert rows[0][30] == 'completed_at_utc'
+    assert rows[0][:11] == ['telegram_user_id', 'telegram_username', 'result', 'last_name',
+                            'first_name', 'middle_name', 'course', 'faculty', 'student_id', 'phone', 'total_time_s']
+    assert rows[0][11:21] == [f'q{i}' for i in range(1, 11)]
+    assert rows[0][21:31] == [f'q{i}_s' for i in range(1, 11)]
+    assert rows[0][31] == 'completed_at_utc'
     assert rows[1][0] == '123' and rows[1][1] == "'=danger" and rows[1][3] == 'Иванова'
 
 

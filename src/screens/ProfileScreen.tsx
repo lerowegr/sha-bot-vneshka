@@ -3,8 +3,14 @@ import { ArrowLeft, ArrowUpRight } from 'lucide-react';
 import { copy } from '../data/copy';
 import type { Profile } from '../lib/api';
 
-const EMPTY: Profile = { last_name: '', first_name: '', middle_name: '', course: '', student_id: '', phone: '' };
+const EMPTY: Profile = { last_name: '', first_name: '', middle_name: '', course: '', faculty: '', student_id: '', phone: '' };
 const NAME_RE = /^[A-Za-zА-Яа-яЁё\- ]{1,60}$/;
+const COURSES = [
+  { value: 'b1', label: 'Бакалавриат, 1 курс' }, { value: 'b2', label: 'Бакалавриат, 2 курс' },
+  { value: 'b3', label: 'Бакалавриат, 3 курс' }, { value: 'b4', label: 'Бакалавриат, 4 курс' },
+  { value: 'm1', label: 'Магистратура, 1 курс' }, { value: 'm2', label: 'Магистратура, 2 курс' },
+];
+const FACULTIES = ['ИТиАБД', 'ВШУ', 'МЭО', 'СНиМК', 'ФинФак', 'ЮрФак', 'НАБ', 'ФЭБ'];
 
 function validate(values: Profile): Partial<Record<keyof Profile, boolean>> {
   const bad: Partial<Record<keyof Profile, boolean>> = {};
@@ -12,7 +18,8 @@ function validate(values: Profile): Partial<Record<keyof Profile, boolean>> {
     const clean = values[key].trim().replace(/\s+/g, ' ');
     if (!NAME_RE.test(clean)) bad[key] = true;
   });
-  if (!['1', '2', '3', '4', '5', '6'].includes(values.course)) bad.course = true;
+  if (!COURSES.some(option => option.value === values.course)) bad.course = true;
+  if (!FACULTIES.includes(values.faculty)) bad.faculty = true;
   if (!/^[A-Za-zА-Яа-яЁё0-9\-]{4,20}$/.test(values.student_id.trim())) bad.student_id = true;
   const digits = values.phone.replace(/[\s\-()]/g, '');
   if (!/^(\+7|8)\d{10}$/.test(digits) && !/^\d{10}$/.test(digits)) bad.phone = true;
@@ -38,6 +45,7 @@ export function ProfileScreen({ onSubmit, onBack }: { onSubmit: (profile: Profil
       first_name: values.first_name.trim().replace(/\s+/g, ' '),
       middle_name: values.middle_name.trim().replace(/\s+/g, ' '),
       course: values.course,
+      faculty: values.faculty,
       student_id: values.student_id.trim(),
       phone: values.phone.trim(),
     });
@@ -61,7 +69,14 @@ export function ProfileScreen({ onSubmit, onBack }: { onSubmit: (profile: Profil
         <span>{copy.profile.course}</span>
         <select value={values.course} onChange={set('course')}>
           <option value="">{copy.profile.coursePlaceholder}</option>
-          {['1', '2', '3', '4', '5', '6'].map(n => <option key={n} value={n}>{n} курс</option>)}
+          {COURSES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+      <label className={`form-field ${errors.faculty ? 'invalid' : ''}`}>
+        <span>{copy.profile.faculty}</span>
+        <select value={values.faculty} onChange={set('faculty')}>
+          <option value="">{copy.profile.facultyPlaceholder}</option>
+          {FACULTIES.map(name => <option key={name} value={name}>{name}</option>)}
         </select>
       </label>
       {field('student_id', copy.profile.studentId, { placeholder: '123456', inputMode: 'text' })}

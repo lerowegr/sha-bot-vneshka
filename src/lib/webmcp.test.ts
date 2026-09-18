@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { registerQuizTool } from './webmcp';
-const PROFILE = { last_name: 'Иванова', first_name: 'Анна', middle_name: 'Сергеевна', course: '2', student_id: '123456', phone: '+79161234567' };
+const PROFILE = { last_name: 'Иванова', first_name: 'Анна', middle_name: 'Сергеевна', course: 'b2', faculty: 'СНиМК', student_id: '123456', phone: '+79161234567' };
 const ANSWERS = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0];
 const TIMES = [1200, 900, 1500, 800, 1100, 950, 1300, 700, 1000, 600];
 afterEach(() => vi.unstubAllGlobals());

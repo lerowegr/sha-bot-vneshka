@@ -79,7 +79,7 @@ def participants_csv(rows: list[dict], details: dict[int, dict] | None = None) -
     output = io.StringIO(newline='')
     writer = csv.writer(output)
     header = (['telegram_user_id', 'telegram_username', 'result',
-               'last_name', 'first_name', 'middle_name', 'course',
+               'last_name', 'first_name', 'middle_name', 'course', 'faculty',
                'student_id', 'phone', 'total_time_s'] +
               [f'q{i + 1}' for i in range(len(QUESTIONS))] +
               [f'q{i + 1}_s' for i in range(len(QUESTIONS))] +
@@ -97,7 +97,8 @@ def participants_csv(rows: list[dict], details: dict[int, dict] | None = None) -
         total = row.get('total_ms')
         writer.writerow([row['telegram_user_id'], username, row['result'],
                          row.get('last_name') or '', row.get('first_name') or '',
-                         row.get('middle_name') or '', row.get('course') or '',
+                         row.get('middle_name') or '', _course_label(row.get('course')),
+                         row.get('faculty') or '',
                          row.get('student_id') or '', row.get('phone') or '',
                          _fmt_secs(total) if total is not None else ''] +
                         ['' if flag is None else flag for flag in flags] +
@@ -112,6 +113,13 @@ def _fmt_secs(ms: int | float) -> str:
         minutes = int(seconds // 60)
         return f"{minutes}м {seconds - minutes * 60:04.1f}с"
     return f"{seconds:.1f}с"
+
+
+def _course_label(course: object) -> str:
+    from database.quiz import COURSE_LABELS, LEGACY_COURSES
+    if isinstance(course, int) and not isinstance(course, bool):
+        return COURSE_LABELS.get(LEGACY_COURSES.get(course, course), str(course))
+    return COURSE_LABELS.get(course, str(course or ''))
 
 
 class BroadcastRunner:
@@ -178,13 +186,23 @@ def create_admin_router(quiz: QuizDatabase, admin_ids: frozenset[int], runner: B
                         'Попытка одна: засчитывается первый результат.'])
         await message.answer('\n'.join(general), parse_mode=None)
 
+        from database.quiz import COURSES, COURSE_LABELS, FACULTIES
         by_course = summary.get('by_course', {})
-        courses = [f"{course} курс: {by_course.get(course, 0)}"
+        courses = [f"{COURSE_LABELS[course]}: {by_course.get(course, 0)}"
                    + (f" ({by_course[course] * 100 / total:.1f}%)" if total else '')
-                   for course in range(1, 7)]
-        leader = max(range(1, 7), key=lambda course: by_course.get(course, 0)) if total else None
+                   for course in COURSES]
+        leader = max(COURSES, key=lambda course: by_course.get(course, 0)) if total else None
         await message.answer('Курсы:\n' + '\n'.join(courses) +
-                             (f"\n\nЧаще всего проходит: {leader} курс" if leader else ''),
+                             (f"\n\nЧаще всего проходит: {COURSE_LABELS[leader]}" if leader else ''),
+                             parse_mode=None)
+
+        by_faculty = summary.get('by_faculty', {})
+        faculties = [f"{faculty}: {by_faculty.get(faculty, 0)}"
+                     + (f" ({by_faculty[faculty] * 100 / total:.1f}%)" if total else '')
+                     for faculty in FACULTIES]
+        top_faculty = max(FACULTIES, key=lambda faculty: by_faculty.get(faculty, 0)) if total else None
+        await message.answer('Факультеты:\n' + '\n'.join(faculties) +
+                             (f"\n\nСамый активный: {top_faculty}" if top_faculty else ''),
                              parse_mode=None)
 
         questions = summary.get('questions', [])

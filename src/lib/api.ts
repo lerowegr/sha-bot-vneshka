@@ -1,6 +1,6 @@
 import { initData } from './telegram';
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'preview' | 'failed' | 'expired' | 'duplicate';
-export type Profile = { last_name: string; first_name: string; middle_name: string; course: string; student_id: string; phone: string };
+export type Profile = { last_name: string; first_name: string; middle_name: string; course: string; faculty: string; student_id: string; phone: string };
 export type SaveOutcome = { status: SaveStatus; score?: number };
 export async function saveQuiz(answers: number[], times: number[], profile: Profile): Promise<SaveOutcome> {
   const data = initData();
