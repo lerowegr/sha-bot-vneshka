@@ -18,7 +18,6 @@ from database.broadcasts import BroadcastStore
 from database.quiz import QuizDatabase
 
 logger = logging.getLogger(__name__)
-SCORE_LABELS = {f'score_{i}': f'{i}/10' for i in range(11)}
 STATUS_LABELS = {
     'draft': 'черновик', 'running': 'отправляется', 'finished': 'завершена',
     'cancelled': 'отменена', 'interrupted': 'прервана',
@@ -74,24 +73,45 @@ def delivery_report(counts: dict[str, int]) -> str:
     )
 
 
-def participants_csv(rows: list[dict]) -> bytes:
+def participants_csv(rows: list[dict], details: dict[int, dict] | None = None) -> bytes:
+    from database.quiz import QUESTIONS
+    details = details or {}
     output = io.StringIO(newline='')
     writer = csv.writer(output)
-    writer.writerow(['telegram_user_id', 'telegram_username', 'result',
-                     'last_name', 'first_name', 'middle_name', 'course',
-                     'student_id', 'phone', 'completed_at_utc'])
+    header = (['telegram_user_id', 'telegram_username', 'result',
+               'last_name', 'first_name', 'middle_name', 'course',
+               'student_id', 'phone', 'total_time_s'] +
+              [f'q{i + 1}' for i in range(len(QUESTIONS))] +
+              [f'q{i + 1}_s' for i in range(len(QUESTIONS))] +
+              ['completed_at_utc'])
+    writer.writerow(header)
     for row in rows:
         # Prevent formula interpretation in spreadsheet apps, including unusual
         # signed usernames. Identity remains the numeric Telegram ID.
         username = row['telegram_username'] or ''
         if username.startswith(('=', '+', '-', '@', '\t', '\r', '\n')):
             username = "'" + username
+        entry = details.get(row['telegram_user_id'], {})
+        flags = entry.get('flags') or [None] * len(QUESTIONS)
+        times = entry.get('times') or [None] * len(QUESTIONS)
+        total = row.get('total_ms')
         writer.writerow([row['telegram_user_id'], username, row['result'],
                          row.get('last_name') or '', row.get('first_name') or '',
                          row.get('middle_name') or '', row.get('course') or '',
                          row.get('student_id') or '', row.get('phone') or '',
-                         row['completed_at']])
+                         _fmt_secs(total) if total is not None else ''] +
+                        ['' if flag is None else flag for flag in flags] +
+                        ['' if ms is None else _fmt_secs(ms) for ms in times] +
+                        [row['completed_at']])
     return output.getvalue().encode('utf-8-sig')
+
+
+def _fmt_secs(ms: int | float) -> str:
+    seconds = (ms or 0) / 1000
+    if seconds >= 60:
+        minutes = int(seconds // 60)
+        return f"{minutes}м {seconds - minutes * 60:04.1f}с"
+    return f"{seconds:.1f}с"
 
 
 class BroadcastRunner:
@@ -144,22 +164,53 @@ def create_admin_router(quiz: QuizDatabase, admin_ids: frozenset[int], runner: B
     async def stats(message: Message) -> None:
         summary = await quiz.summary()
         total = summary['total']
-        lines = [f"Завершили тест: {total} уникальных участников", '']
-        for result_id in sorted(summary['by_result'], key=lambda k: int(k.split('_')[1])):
-            count = summary['by_result'][result_id]
-            percent = count * 100 / total if total else 0
-            lines.append(f'{SCORE_LABELS.get(result_id, result_id)}: {count} ({percent:.1f}%)')
-        lines.extend(['', f"В списке рассылки: {summary['eligible']}",
-                      f"Отписались: {total - summary['eligible']}",
-                      f"Дублей по телефону: {summary.get('dup_phones', 0)}",
-                      f"Дублей по студбилету: {summary.get('dup_student_ids', 0)}",
-                      'Одна попытка на человека: повторные прохождения отклоняются, засчитывается первый результат.',
-                      'Посещения, незавершённые тесты и прочтения не отслеживаются.'])
-        await message.answer('\n'.join(lines), parse_mode=None)
+        by_result = summary['by_result']
+        avg_score = (sum(int(key.split('_')[1]) * count for key, count in by_result.items()) / total) if total else 0
+        general = [f"Участников: {total} уникальных", '']
+        nonzero = [(int(key.split('_')[1]), count) for key, count in by_result.items() if count]
+        for score, count in sorted(nonzero):
+            general.append(f'{score}/10: {count} ({count * 100 / total:.1f}%)')
+        general.extend(['', f'Средний балл: {avg_score:.1f}/10',
+                        f"В списке рассылки: {summary['eligible']}",
+                        f"Отписались: {total - summary['eligible']}",
+                        f"Дублей по телефону: {summary.get('dup_phones', 0)}",
+                        f"Дублей по студбилету: {summary.get('dup_student_ids', 0)}",
+                        'Попытка одна: засчитывается первый результат.'])
+        await message.answer('\n'.join(general), parse_mode=None)
+
+        by_course = summary.get('by_course', {})
+        courses = [f"{course} курс: {by_course.get(course, 0)}"
+                   + (f" ({by_course[course] * 100 / total:.1f}%)" if total else '')
+                   for course in range(1, 7)]
+        leader = max(range(1, 7), key=lambda course: by_course.get(course, 0)) if total else None
+        await message.answer('Курсы:\n' + '\n'.join(courses) +
+                             (f"\n\nЧаще всего проходит: {leader} курс" if leader else ''),
+                             parse_mode=None)
+
+        questions = summary.get('questions', [])
+        ranked = sorted(enumerate(questions, start=1), key=lambda item: item[1]['pct'])
+        lines = []
+        for number, question in ranked:
+            if question['attempts']:
+                lines.append(f"{number}. {question['label']} — {question['pct']:.0f}% верных "
+                             f"(n={question['attempts']}, ср. {_fmt_secs(question['avg_ms'])})")
+            else:
+                lines.append(f"{number}. {question['label']} — пока нет данных")
+        await message.answer('Вопросы (от сложного к простому):\n' + '\n'.join(lines), parse_mode=None)
+
+        timed = summary.get('timed_count', 0)
+        avg_total = summary.get('avg_total_ms', 0)
+        await message.answer(
+            f"Время (замер с открытия вопроса до ответа):\n"
+            f"Среднее суммарное: {_fmt_secs(avg_total)} (n={timed})\n"
+            f"Среднее на вопрос: {_fmt_secs(avg_total / 10) if timed else '—'}\n\n"
+            f"Посещения, незавершённые тесты и прочтения не отслеживаются.",
+            parse_mode=None)
 
     async def export(message: Message) -> None:
         rows = await quiz.participants()
-        await message.answer_document(BufferedInputFile(participants_csv(rows), filename='quiz_participants.csv'),
+        details = await quiz.answer_details()
+        await message.answer_document(BufferedInputFile(participants_csv(rows, details), filename='quiz_participants.csv'),
                                       caption=f'Участников: {len(rows)}. Дата — последнее завершение, UTC.')
 
     async def compose(message: Message, state: FSMContext) -> None:

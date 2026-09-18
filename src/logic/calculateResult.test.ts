@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateScore, scoreToResultId } from './calculateResult';
+import { calculateScore, scoreToResultId, toCanonical } from './calculateResult';
 import { questions, shuffleQuestionAnswers, TOTAL_QUESTIONS } from '../data/questions';
 
 describe('quiz scoring', () => {
@@ -22,6 +22,16 @@ describe('quiz scoring', () => {
       });
     });
     expect(questions.map(question => question.answers.map(answer => answer.text))).toEqual(originalOrders);
+  });
+  it('maps shuffled selections back to canonical indices', () => {
+    const shuffled = shuffleQuestionAnswers(questions, () => 0.5);
+    const selected = shuffled.map(q => q.answers.findIndex(a => a.correct));
+    const canonical = toCanonical(selected, shuffled);
+    expect(canonical).toHaveLength(10);
+    canonical.forEach((index, q) => {
+      expect(questions[q].answers[index].correct).toBe(true);
+    });
+    expect(calculateScore(selected, shuffled)).toBe(10);
   });
   it('scores 10 when all answers are correct', () => {
     const shuffled = shuffleQuestionAnswers(questions, () => 0.5);

@@ -1,4 +1,4 @@
-import { TOTAL_QUESTIONS, type Question } from '../data/questions';
+import { TOTAL_QUESTIONS, questions, type Question } from '../data/questions';
 export const RESULT_IDS = Array.from({ length: TOTAL_QUESTIONS + 1 }, (_, score) => `score_${score}`);
 export function scoreToResultId(score: number): string {
   if (!Number.isInteger(score) || score < 0 || score > TOTAL_QUESTIONS) throw new Error(`Expected score 0..${TOTAL_QUESTIONS}`);
@@ -17,6 +17,18 @@ export function calculateScore(selected: readonly number[], shuffled: readonly Q
 // Back-compat name used by App: returns result id like score_7.
 export function calculateResult(selected: readonly number[], shuffled: readonly Question[]): string {
   return scoreToResultId(calculateScore(selected, shuffled));
+}
+// Map shuffled answer indices back to canonical (src/data/questions.ts) order
+// so the server can score them against its own reference.
+export function toCanonical(selected: readonly number[], shuffled: readonly Question[]): number[] {
+  if (selected.length !== TOTAL_QUESTIONS || shuffled.length !== TOTAL_QUESTIONS) throw new Error(`Expected exactly ${TOTAL_QUESTIONS} answers`);
+  return selected.map((answerIndex, q) => {
+    const answers = shuffled[q]?.answers;
+    if (!answers || !Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= answers.length) throw new Error('Invalid answer index');
+    const original = questions[q].answers.indexOf(answers[answerIndex]);
+    if (original < 0) throw new Error('Unknown answer');
+    return original;
+  });
 }
 export function scoreMessage(score: number): string {
   if (score >= 9) return 'Легенда ША! Ты знаешь проект почти идеально.';

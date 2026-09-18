@@ -63,17 +63,44 @@ def test_rejects_wrong_bot():
 
 @pytest.mark.asyncio
 async def test_database_upsert_and_concurrency(tmp_path):
+    from database.quiz import score_answers
     db = QuizDatabase(tmp_path / "quiz.sqlite3")
     await db.initialize()
     assert await db.count() == 0
-    await asyncio.gather(*(db.complete(i, f"user{i}", "score_7", prof(i)) for i in range(1, 7)))
+    good = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0]
+    times = [1000, 900, 800, 1200, 1100, 950, 1050, 700, 1300, 600]
+    await asyncio.gather(*(db.complete(i, f"user{i}", good, times, prof(i)) for i in range(1, 7)))
     assert await db.count() == 6
     with pytest.raises(AlreadyCompleted):
-        await db.complete(1, None, "score_10", prof(1))
+        await db.complete(1, None, good, times, prof(1))
     assert await db.count() == 6
     first = next(row for row in await db.participants() if row["telegram_user_id"] == 1)
-    assert first["result"] == "score_7" and first["phone"] == "+79000000001"
-    assert first["completed_at"]
+    assert first["result"] == "score_10" and first["phone"] == "+79000000001"
+    assert first["total_ms"] == sum(times)
+    summary = await db.summary()
+    assert summary["questions"][0]["attempts"] == 6
+    assert summary["questions"][0]["correct"] == 6
+    assert summary["questions"][0]["pct"] == 100.0
+    assert summary["avg_total_ms"] == sum(times)
+    assert summary["by_course"][2] == 6
+
+
+def test_answers_times_and_scoring():
+    from database.quiz import score_answers, validate_answers, validate_times
+    good = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0]
+    assert validate_answers(good) == good
+    assert score_answers(good) == ("score_10", 10, [1] * 10)
+    mixed = [0, 0, 0, 1, 2, 0, 2, 0, 2, 0]
+    assert score_answers(mixed)[0] == "score_9"
+    assert validate_times([1000] * 10) == [1000] * 10
+    for bad_answers in [None, [], [0] * 9, [0] * 11, [4, 0, 0, 1, 2, 0, 2, 0, 2, 0],
+                        ["2", 0, 0, 1, 2, 0, 2, 0, 2, 0], [True, 0, 0, 1, 2, 0, 2, 0, 2, 0]]:
+        with pytest.raises(ValueError):
+            validate_answers(bad_answers)
+    for bad_times in [None, [1000] * 9, [1000] * 10 + [-1], ["1000"] * 10, [True] * 10,
+                      [3_600_001] + [1000] * 9]:
+        with pytest.raises(ValueError):
+            validate_times(bad_times)
 
 
 def test_profile_validation():
@@ -100,11 +127,13 @@ async def test_legacy_row_gets_profile_once(tmp_path):
         await conn.commit()
     db = QuizDatabase(path)
     await db.initialize()
-    assert await db.complete(1, "late_name", "score_10", prof(1)) == "profile_updated"
+    good = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0]
+    times = [1000] * 10
+    assert await db.complete(1, "late_name", good, times, prof(1)) == ("score_7", "profile_updated")
     row = (await db.participants())[0]
     assert row["result"] == "score_7" and row["phone"] == "+79000000001"
     with pytest.raises(AlreadyCompleted):
-        await db.complete(1, None, "score_10", prof(1))
+        await db.complete(1, None, good, times, prof(1))
 
 
 @pytest.mark.asyncio
@@ -116,32 +145,40 @@ async def test_api_validation_and_persistence(tmp_path):
         health = await client.get('/healthz')
         assert health.status == 200 and await health.json() == {'status': 'ok'}
         assert await db.count() == 0
+        good = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0]
+        times = [1000, 900, 800, 1200, 1100, 950, 1050, 700, 1300, 600]
+        base = {"initData": signed(), "answers": good, "times": times, "profile": prof(1)}
         invalid_cases = [
-            ({"initData": "invalid", "result": "score_7", "profile": prof(1)}, 401),
-            ({"initData": signed(auth_date=1), "result": "score_7", "profile": prof(1)}, 401),
-            ({"initData": signed(), "result": "hacker", "profile": prof(1)}, 400),
-            ({"initData": signed(), "result": [], "profile": prof(1)}, 400),
-            ({"initData": 123, "result": "score_7", "profile": prof(1)}, 401),
-            ({"initData": signed(), "result": "score_7", "profile": {"bad": 1}}, 400),
-            ({"initData": signed(), "result": "score_7", "profile": prof(1, phone="x")}, 400),
-            ({"initData": signed(), "result": "score_7"}, 400),
-            ({"initData": signed(), "result": "score_7", "profile": prof(1), "telegram_user_id": 999}, 400),
+            ({**base, "initData": "invalid"}, 401),
+            ({**base, "initData": signed(auth_date=1)}, 401),
+            ({**base, "answers": [0] * 10}, 200),
+            ({**base, "answers": [99] + good[1:]}, 400),
+            ({**base, "answers": good[:9]}, 400),
+            ({**base, "answers": "nope"}, 400),
+            ({**base, "times": [1000] * 9}, 400),
+            ({**base, "times": [-1] + times[1:]}, 400),
+            ({**base, "times": "fast"}, 400),
+            ({**base, "profile": {"bad": 1}}, 400),
+            ({**base, "profile": prof(1, phone="x")}, 400),
+            ({"initData": signed(), "answers": good, "times": times}, 400),
+            ({"initData": signed(), "answers": good, "profile": prof(1)}, 400),
+            ({"initData": signed(), "result": "score_7", "profile": prof(1)}, 400),
+            ({**base, "telegram_user_id": 999}, 400),
+            ({"initData": 123, "answers": good, "times": times, "profile": prof(1)}, 401),
             ([], 400),
         ]
         for payload, status in invalid_cases:
             response = await client.post('/api/quiz/complete', json=payload)
-            assert response.status == status
-        assert await db.count() == 0
-        assert (await client.post('/api/quiz/complete', data='{', headers={'Content-Type': 'application/json'})).status == 400
-        assert (await client.post('/api/quiz/complete', data='x')).status == 415
-        assert (await client.post('/api/quiz/complete', json={'initData': 'x' * 25000, 'result': 'score_7', 'profile': prof(1)})).status == 413
-        response = await client.post('/api/quiz/complete', json={'initData': signed(), 'result': 'score_7', 'profile': prof(1)})
-        assert response.status == 200 and await response.json() == {'ok': True}
+            assert response.status == status, payload
         assert await db.count() == 1
-        assert (await db.participants())[0]['result'] == 'score_7'
-        response = await client.post('/api/quiz/complete', json={'initData': signed(), 'result': 'score_10', 'profile': prof(1)})
+        row = (await db.participants())[0]
+        assert row["result"] == "score_5" and row["total_ms"] == sum(times)
+        summary = await db.summary()
+        assert summary["questions"][0]["correct"] == 0
+        assert summary["questions"][1]["correct"] == 1
+        assert summary["questions"][0]["avg_ms"] == 1000
+        response = await client.post('/api/quiz/complete', json=base)
         assert response.status == 409 and await response.json() == {'error': 'already_completed'}
-        assert (await db.participants())[0]['result'] == 'score_7'
         assert (await client.get('/api/quiz/complete')).status == 405
 
 

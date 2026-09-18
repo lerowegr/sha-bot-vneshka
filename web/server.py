@@ -7,7 +7,10 @@ from pathlib import Path
 import aiosqlite
 from aiohttp import web
 
-from database.quiz import AlreadyCompleted, QuizDatabase, RESULTS, validate_profile
+from database.quiz import (
+    AlreadyCompleted, QuizDatabase, score_answers,
+    validate_answers, validate_profile, validate_times,
+)
 from web.telegram_auth import TelegramAuthError, validate_init_data
 
 logger = logging.getLogger(__name__)
@@ -30,27 +33,29 @@ def create_app(*, bot_token: str, database_path: str | Path,
             payload = await request.json()
         except (json.JSONDecodeError, UnicodeDecodeError):
             return web.json_response({"error": "invalid_json"}, status=400)
-        if not isinstance(payload, dict) or set(payload) != {"initData", "result", "profile"}:
+        if not isinstance(payload, dict) or set(payload) != {"initData", "answers", "times", "profile"}:
             return web.json_response({"error": "invalid_payload"}, status=400)
-        result = payload["result"]
-        if not isinstance(result, str) or result not in RESULTS:
-            return web.json_response({"error": "invalid_result"}, status=400)
         try:
+            answers = validate_answers(payload["answers"])
+            times = validate_times(payload["times"])
             validate_profile(payload["profile"])
         except ValueError:
-            return web.json_response({"error": "invalid_profile"}, status=400)
+            return web.json_response({"error": "invalid_payload"}, status=400)
+        result_id, score, _ = score_answers(answers)
         try:
             user = validate_init_data(payload["initData"], bot_token, max_age=max_age)
         except TelegramAuthError:
             return web.json_response({"error": "invalid_init_data"}, status=401)
         try:
-            await db.complete(user.id, user.username, result, payload["profile"])
+            stored_result, _ = await db.complete(user.id, user.username, answers, times, payload["profile"])
         except AlreadyCompleted:
             return web.json_response({"error": "already_completed"}, status=409)
         except aiosqlite.Error:
             logger.error("Quiz database write failed")
             return web.json_response({"error": "storage_unavailable"}, status=503)
-        return web.json_response({"ok": True}, headers={"Cache-Control": "no-store"})
+        # stored_result equals result_id for new rows; legacy rows keep their first result.
+        return web.json_response({"ok": True, "score": score, "result": stored_result},
+                                 headers={"Cache-Control": "no-store"})
 
     async def health(_: web.Request) -> web.Response:
         return web.json_response({"status": "ok"}, headers={"Cache-Control": "no-store"})

@@ -8,6 +8,22 @@ import aiosqlite
 RESULTS = frozenset({f"score_{i}" for i in range(11)})
 RESULT_CHECK = ", ".join(f"'score_{i}'" for i in range(11))
 
+# Эталон теста — должен 1-в-1 совпадать с src/data/questions.ts.
+# Клиент присылает индексы в ИСХОДНОМ порядке (не перемешанном), сервер считает баллы сам.
+QUESTIONS = [
+    {"label": "Возраст проекта", "answers": ["20", "22", "25", "24"], "correct": 2},
+    {"label": "Фраза «Школа Актива»", "answers": ["море знаний, позитива", "много счастья, позитива", "море цифр, позитива"], "correct": 0},
+    {"label": "Место проекта", "answers": ["УОК Лесное Озеро", "УОК Лесная Поляна", "УОК Лесная Опушка", "УОК Березовая Роща"], "correct": 0},
+    {"label": "Футболки наставников", "answers": ["фиолетовые", "синие", "белые", "красные"], "correct": 1},
+    {"label": "Длительность", "answers": ["1", "2", "3", "4"], "correct": 2},
+    {"label": "Директора", "answers": ["Катя и Лера", "Арина и Влад", "Даша и Кристина", "Катя и Никита"], "correct": 0},
+    {"label": "«Из искры»", "answers": ["свет", "позитив", "пламя", "костёр"], "correct": 2},
+    {"label": "Фиолетовая футболка", "answers": ["тренера", "методиста", "техпода", "наставника"], "correct": 0},
+    {"label": "Когда проект", "answers": ["в сентябре", "в октябре", "в ноябре", "в декабре"], "correct": 2},
+    {"label": "Хочешь на ША", "answers": ["Да", "Пока думаю", "Нет("], "correct": 0},
+]
+MAX_TIME_MS = 3_600_000
+
 PROFILE_FIELDS = ("last_name", "first_name", "middle_name", "course", "student_id", "phone")
 _NAME_RE = re.compile(r"^[A-Za-zА-Яа-яЁё\- ]{1,60}$")
 _STUDENT_ID_RE = re.compile(r"^[A-Za-zА-Яа-яЁё0-9\-]{4,20}$")
@@ -37,6 +53,41 @@ def validate_profile(profile: object) -> dict:
         "last_name": last_name, "first_name": first_name, "middle_name": middle_name,
         "course": course, "student_id": student_id.strip(), "phone": phone,
     }
+
+
+def validate_answers(answers: object) -> list[int]:
+    """Check 10 canonical answer indices. Raises ValueError."""
+    if not isinstance(answers, list) or len(answers) != len(QUESTIONS):
+        raise ValueError("answers must be a list of 10 indices")
+    clean = []
+    for i, (index, question) in enumerate(zip(answers, QUESTIONS)):
+        if not isinstance(index, int) or isinstance(index, bool):
+            raise ValueError(f"Bad answer for question {i + 1}")
+        if not 0 <= index < len(question["answers"]):
+            raise ValueError(f"Bad answer for question {i + 1}")
+        clean.append(index)
+    return clean
+
+
+def validate_times(times: object) -> list[int]:
+    """Check 10 per-question times in ms. Raises ValueError."""
+    if not isinstance(times, list) or len(times) != len(QUESTIONS):
+        raise ValueError("times must be a list of 10 values")
+    clean = []
+    for i, value in enumerate(times):
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"Bad time for question {i + 1}")
+        if not 0 <= value <= MAX_TIME_MS:
+            raise ValueError(f"Bad time for question {i + 1}")
+        clean.append(value)
+    return clean
+
+
+def score_answers(answers: list[int]) -> tuple[str, int, list[int]]:
+    """Return (result_id, score, per-question correct flags)."""
+    flags = [1 if index == q["correct"] else 0 for index, q in zip(answers, QUESTIONS)]
+    score = sum(flags)
+    return f"score_{score}", score, flags
 
 
 def _clean_name(value: object, field: str) -> str:
@@ -82,15 +133,25 @@ class QuizDatabase:
                     middle_name TEXT NULL,
                     course INTEGER NULL,
                     student_id TEXT NULL,
-                    phone TEXT NULL
+                    phone TEXT NULL,
+                    total_ms INTEGER NULL
                 )
             """)
             # Add profile columns to tables created before the contest form.
             async with db.execute("PRAGMA table_info(quiz_users)") as cursor:
                 columns = {row[1] for row in await cursor.fetchall()}
-            for column in ("last_name", "first_name", "middle_name", "course", "student_id", "phone"):
+            for column in ("last_name", "first_name", "middle_name", "course", "student_id", "phone", "total_ms"):
                 if column not in columns:
-                    await db.execute(f"ALTER TABLE quiz_users ADD COLUMN {column} {'INTEGER' if column == 'course' else 'TEXT'} NULL")
+                    await db.execute(f"ALTER TABLE quiz_users ADD COLUMN {column} {'INTEGER' if column in ('course', 'total_ms') else 'TEXT'} NULL")
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS quiz_answers (
+                    telegram_user_id INTEGER NOT NULL,
+                    q_index INTEGER NOT NULL,
+                    correct INTEGER NOT NULL,
+                    time_ms INTEGER NOT NULL,
+                    PRIMARY KEY (telegram_user_id, q_index)
+                )
+            """)
             # Migrate legacy CT base (backend/frontend/...) to new score_* schema.
             async with db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='quiz_users'") as cursor:
                 row = await cursor.fetchone()
@@ -145,31 +206,41 @@ class QuizDatabase:
             """)
             await db.commit()
 
-    async def complete(self, user_id: int, username: str | None, result: str, profile: dict | None) -> str:
+    async def complete(self, user_id: int, username: str | None,
+                       answers: list[int] | tuple[int, ...], times: list[int] | tuple[int, ...],
+                       profile: dict | None) -> tuple[str, str]:
         """Save first completion; fill a legacy profile-less row once; reject repeats.
 
-        Returns 'created' or 'profile_updated'. Raises AlreadyCompleted or ValueError.
+        The score is always computed server-side from canonical answers.
+        Returns (result_id, status) where status is 'created' or 'profile_updated'.
+        Raises AlreadyCompleted or ValueError.
         """
-        if result not in RESULTS:
-            raise ValueError("Unknown quiz result")
+        clean_answers = validate_answers(answers)
+        clean_times = validate_times(times)
         clean = validate_profile(profile)
+        result_id, _, flags = score_answers(clean_answers)
+        total_ms = sum(clean_times)
         now = datetime.now(timezone.utc).isoformat()
         async with aiosqlite.connect(self.path, timeout=10) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT last_name FROM quiz_users WHERE telegram_user_id = ?", (user_id,)
+                "SELECT last_name, result FROM quiz_users WHERE telegram_user_id = ?", (user_id,)
             ) as cursor:
                 existing = await cursor.fetchone()
             if existing is None:
                 await db.execute("""
                     INSERT INTO quiz_users
                         (telegram_user_id, telegram_username, result, completed_at,
-                         last_name, first_name, middle_name, course, student_id, phone)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (user_id, username, result, now, clean["last_name"], clean["first_name"],
-                      clean["middle_name"], clean["course"], clean["student_id"], clean["phone"]))
+                         last_name, first_name, middle_name, course, student_id, phone, total_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (user_id, username, result_id, now, clean["last_name"], clean["first_name"],
+                      clean["middle_name"], clean["course"], clean["student_id"], clean["phone"], total_ms))
+                await db.executemany("""
+                    INSERT INTO quiz_answers (telegram_user_id, q_index, correct, time_ms)
+                    VALUES (?, ?, ?, ?)
+                """, [(user_id, i, flag, ms) for i, (flag, ms) in enumerate(zip(flags, clean_times))])
                 await db.commit()
-                return "created"
+                return result_id, "created"
             if existing["last_name"] is None:
                 await db.execute("""
                     UPDATE quiz_users SET telegram_username = ?, completed_at = ?,
@@ -179,7 +250,7 @@ class QuizDatabase:
                 """, (username, now, clean["last_name"], clean["first_name"], clean["middle_name"],
                       clean["course"], clean["student_id"], clean["phone"], user_id))
                 await db.commit()
-                return "profile_updated"
+                return existing["result"], "profile_updated"
             raise AlreadyCompleted("Participant already completed the quiz")
 
     async def count(self) -> int:
@@ -193,6 +264,21 @@ class QuizDatabase:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT * FROM quiz_users ORDER BY completed_at DESC") as cursor:
                 return [dict(row) for row in await cursor.fetchall()]
+
+    async def answer_details(self) -> dict[int, dict]:
+        """Per-user answers: {user_id: {'flags': [...], 'times': [...]}} in question order."""
+        details: dict[int, dict] = {}
+        async with aiosqlite.connect(self.path, timeout=10) as db:
+            async with db.execute(
+                "SELECT telegram_user_id, q_index, correct, time_ms FROM quiz_answers"
+            ) as cursor:
+                async for user_id, q_index, correct, time_ms in cursor:
+                    entry = details.setdefault(user_id, {
+                        "flags": [None] * len(QUESTIONS), "times": [None] * len(QUESTIONS)})
+                    if 0 <= q_index < len(QUESTIONS):
+                        entry["flags"][q_index] = correct
+                        entry["times"][q_index] = time_ms
+        return details
 
     async def set_subscribed(self, user_id: int, subscribed: bool) -> None:
         async with aiosqlite.connect(self.path, timeout=10) as db:
@@ -232,6 +318,32 @@ class QuizDatabase:
                 )
             """) as cursor:
                 dup_student_ids = (await cursor.fetchone())[0]
+            async with db.execute("""
+                SELECT course, COUNT(*) FROM quiz_users
+                WHERE course IS NOT NULL GROUP BY course ORDER BY course
+            """) as cursor:
+                by_course = {course: 0 for course in range(1, 7)}
+                by_course.update({row[0]: row[1] for row in await cursor.fetchall()})
+            async with db.execute("""
+                SELECT q_index, COUNT(*), COALESCE(SUM(correct), 0), COALESCE(AVG(time_ms), 0)
+                FROM quiz_answers GROUP BY q_index
+            """) as cursor:
+                answer_rows = {row[0]: row[1:] for row in await cursor.fetchall()}
+            questions = []
+            for i, question in enumerate(QUESTIONS):
+                attempts, correct, avg_ms = answer_rows.get(i, (0, 0, 0))
+                questions.append({
+                    "label": question["label"], "attempts": attempts, "correct": correct,
+                    "pct": (100.0 * correct / attempts) if attempts else 0.0,
+                    "avg_ms": avg_ms,
+                })
+            async with db.execute("""
+                SELECT COUNT(total_ms), COALESCE(AVG(total_ms), 0) FROM quiz_users
+                WHERE total_ms IS NOT NULL
+            """) as cursor:
+                timed_count, avg_total_ms = await cursor.fetchone()
             return {"total": sum(by_result.values()), "by_result": by_result,
                     "eligible": eligible, "dup_phones": dup_phones,
-                    "dup_student_ids": dup_student_ids}
+                    "dup_student_ids": dup_student_ids, "by_course": by_course,
+                    "questions": questions, "timed_count": timed_count,
+                    "avg_total_ms": avg_total_ms}

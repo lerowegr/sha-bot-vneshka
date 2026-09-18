@@ -27,6 +27,11 @@ def prof(i=1, **over):
     return base
 
 
+GOOD = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0]
+SEVEN = [2, 0, 0, 0, 2, 1, 2, 0, 1, 0]
+TIMES = [1000] * 10
+
+
 @pytest_asyncio.fixture
 async def storage(tmp_path):
     quiz = QuizDatabase(tmp_path / 'quiz.sqlite3')
@@ -87,11 +92,11 @@ async def test_admin_filter_rejects_non_admins_and_groups():
 async def test_stats_and_opt_out_survive_retake(storage):
     quiz, _ = storage
     assert (await quiz.summary())['total'] == 0
-    await quiz.complete(1, 'one', 'score_7', prof(1))
-    await quiz.complete(2, None, 'score_10', prof(2))
+    await quiz.complete(1, 'one', SEVEN, TIMES, prof(1))
+    await quiz.complete(2, None, GOOD, TIMES, prof(2))
     await quiz.set_subscribed(1, False)
     with pytest.raises(AlreadyCompleted):
-        await quiz.complete(1, 'new_name', 'score_10', prof(1))
+        await quiz.complete(1, 'new_name', GOOD, TIMES, prof(1))
     await quiz.set_subscribed(99, False)
     summary = await quiz.summary()
     assert summary['total'] == 2 and summary['eligible'] == 1
@@ -107,17 +112,20 @@ def test_csv_has_latest_fields_and_neutralizes_formulas():
                              'middle_name': 'Сергеевна', 'course': 2, 'student_id': '100001',
                              'phone': '+79000000001', 'completed_at': '2026-09-08T00:00:00+00:00'}])
     rows = list(csv.reader(io.StringIO(raw.decode('utf-8-sig'))))
-    assert rows[0] == ['telegram_user_id', 'telegram_username', 'result', 'last_name',
-                       'first_name', 'middle_name', 'course', 'student_id', 'phone', 'completed_at_utc']
+    assert rows[0][:10] == ['telegram_user_id', 'telegram_username', 'result', 'last_name',
+                            'first_name', 'middle_name', 'course', 'student_id', 'phone', 'total_time_s']
+    assert rows[0][10:20] == [f'q{i}' for i in range(1, 11)]
+    assert rows[0][20:30] == [f'q{i}_s' for i in range(1, 11)]
+    assert rows[0][30] == 'completed_at_utc'
     assert rows[1][0] == '123' and rows[1][1] == "'=danger" and rows[1][3] == 'Иванова'
 
 
 @pytest.mark.asyncio
 async def test_draft_snapshot_ownership_and_repeated_confirmation(storage):
     quiz, store = storage
-    await quiz.complete(1, None, 'score_7', prof(1))
+    await quiz.complete(1, None, GOOD, TIMES, prof(1))
     draft = await store.create_draft(10, 'Отбор скоро 🧡', [])
-    await quiz.complete(2, None, 'score_10', prof(2))
+    await quiz.complete(2, None, GOOD, TIMES, prof(2))
     assert await store.pending(draft) == [1]
     assert await store.get(draft, 11) is None
     assert not await store.claim(draft, 11)
@@ -130,7 +138,7 @@ async def test_draft_snapshot_ownership_and_repeated_confirmation(storage):
 @pytest.mark.asyncio
 async def test_replaced_cancelled_and_interrupted_drafts_do_not_restart(storage):
     quiz, store = storage
-    await quiz.complete(1, None, 'score_7', prof(1))
+    await quiz.complete(1, None, GOOD, TIMES, prof(1))
     old = await store.create_draft(10, 'Старый текст', [])
     current = await store.create_draft(10, 'Новый текст', [])
     assert not await store.claim(old, 10)
@@ -149,7 +157,7 @@ async def test_replaced_cancelled_and_interrupted_drafts_do_not_restart(storage)
 async def test_broadcast_reports_success_errors_and_late_opt_out(storage, monkeypatch):
     quiz, store = storage
     for user_id in range(1, 6):
-        await quiz.complete(user_id, None, 'score_7', prof(user_id))
+        await quiz.complete(user_id, None, GOOD, TIMES, prof(user_id))
     draft = await store.create_draft(10, 'Отбор', [])
     await quiz.set_subscribed(5, False)
     await store.claim(draft, 10)
@@ -174,7 +182,7 @@ async def test_broadcast_reports_success_errors_and_late_opt_out(storage, monkey
 @pytest.mark.asyncio
 async def test_rate_limit_retry_preserves_entities(storage, monkeypatch):
     quiz, store = storage
-    await quiz.complete(1, None, 'score_7', prof(1))
+    await quiz.complete(1, None, GOOD, TIMES, prof(1))
     entities = [{'type': 'bold', 'offset': 0, 'length': 5}]
     draft = await store.create_draft(10, 'Отбор', entities)
     await store.claim(draft, 10)
@@ -192,7 +200,7 @@ async def test_rate_limit_retry_preserves_entities(storage, monkeypatch):
 @pytest.mark.asyncio
 async def test_cancel_during_rate_limit_stops_retry(storage, monkeypatch):
     quiz, store = storage
-    await quiz.complete(1, None, 'score_7', prof(1))
+    await quiz.complete(1, None, GOOD, TIMES, prof(1))
     draft = await store.create_draft(10, 'Отбор', [])
     await store.claim(draft, 10)
     bot = AsyncMock()
@@ -208,7 +216,7 @@ async def test_cancel_during_rate_limit_stops_retry(storage, monkeypatch):
 @pytest.mark.asyncio
 async def test_admin_router_preview_requires_confirmation_and_auth(storage):
     quiz, store = storage
-    await quiz.complete(1, None, 'score_7', prof(1))
+    await quiz.complete(1, None, GOOD, TIMES, prof(1))
     runner = BroadcastRunner(quiz, store)
     runner.launch = AsyncMock()
     dispatcher = Dispatcher()
@@ -246,7 +254,7 @@ async def test_message_length_validation(storage):
 @pytest.mark.asyncio
 async def test_runner_sends_and_reports_without_blocking_router(storage, monkeypatch):
     quiz, store = storage
-    await quiz.complete(1, None, 'score_7', prof(1))
+    await quiz.complete(1, None, GOOD, TIMES, prof(1))
     broadcast_id = await store.create_draft(10, 'Отбор открыт', [])
     await store.claim(broadcast_id, 10)
     runner = BroadcastRunner(quiz, store)

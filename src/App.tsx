@@ -11,9 +11,9 @@ import { ResultScreen } from './screens/ResultScreen';
 import { CTScreen } from './screens/CTScreen';
 import { copy } from './data/copy';
 import { questions, shuffleQuestionAnswers, TOTAL_QUESTIONS, type Question } from './data/questions';
-import { calculateScore, scoreToResultId } from './logic/calculateResult';
+import { calculateScore, toCanonical } from './logic/calculateResult';
 import { haptic, setupTelegram, telegram } from './lib/telegram';
-import { saveResult, type Profile, type SaveStatus } from './lib/api';
+import { saveQuiz, type Profile, type SaveStatus } from './lib/api';
 import { registerQuizTool } from './lib/webmcp';
 type Screen = 'start' | 'profile' | 'question' | 'analysis' | 'result' | 'ct';
 export default function App() {
@@ -27,27 +27,34 @@ export default function App() {
   const saving = useRef(false);
   const navigationLock = useRef(false);
   const answeredIndex = useRef<number | null>(null);
+  const questionStart = useRef(0);
+  const timesRef = useRef<number[]>([]);
+  const submissionRef = useRef<{ answers: number[]; times: number[] } | null>(null);
   const reducedMotion = useReducedMotion();
   useEffect(setupTelegram, []);
-  const start = useCallback(() => { answeredIndex.current = null; setAnswers([]); setProfile(null); setShuffledQuestions(shuffleQuestionAnswers(questions)); setIndex(0); setSaveStatus('idle'); setScreen('profile'); }, []);
-  const beginQuiz = useCallback((values: Profile) => { answeredIndex.current = null; setAnswers([]); setProfile(values); setIndex(0); setSaveStatus('idle'); setScreen('question'); }, []);
+  const start = useCallback(() => { answeredIndex.current = null; setAnswers([]); setProfile(null); timesRef.current = []; submissionRef.current = null; setShuffledQuestions(shuffleQuestionAnswers(questions)); setIndex(0); setSaveStatus('idle'); setScreen('profile'); }, []);
+  const beginQuiz = useCallback((values: Profile) => { answeredIndex.current = null; setAnswers([]); setProfile(values); timesRef.current = []; submissionRef.current = null; setIndex(0); setSaveStatus('idle'); setScreen('question'); }, []);
   const back = useCallback(() => { if (navigationLock.current) return; navigationLock.current = true; answeredIndex.current = null; if (screen === 'ct') setScreen('result'); if (screen === 'profile') setScreen('start'); if (screen === 'question') { if (index === 0) setScreen('profile'); else setIndex(value => value - 1); } }, [screen, index]);
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }); }, [screen, index]);
+  useEffect(() => { if (screen === 'question') questionStart.current = Date.now(); }, [screen, index]);
   useEffect(() => { const app = telegram(); if (!app?.initData || !app.isVersionAtLeast('6.1')) return; if (screen === 'question' || screen === 'profile' || screen === 'ct') app.BackButton.show(); else app.BackButton.hide(); app.BackButton.onClick(back); return () => { app.BackButton.offClick(back); app.BackButton.hide(); }; }, [screen, back]);
-  const persist = useCallback(async (resultId: string, values: Profile | null): Promise<SaveStatus> => { if (saving.current) return 'saving'; if (!values) return 'failed'; saving.current = true; setSaveStatus('saving'); try { const status = await saveResult(resultId, values); setSaveStatus(status); return status; } finally { saving.current = false; } }, []);
-  const completeQuiz = useCallback((completedAnswers: number[], qs: readonly Question[] = shuffledQuestions, values: Profile | null = profile) => { const value = calculateScore(completedAnswers, qs); const resultId = scoreToResultId(value); setAnswers(completedAnswers); setScore(value); setScreen('analysis'); return { score: value, result: resultId, saved: persist(resultId, values) }; }, [persist, shuffledQuestions, profile]);
-  useEffect(() => registerQuizTool(async (completedAnswers, qs, values) => {
+  const persist = useCallback(async (answers: number[], times: number[], values: Profile | null): Promise<SaveStatus> => { if (saving.current) return 'saving'; if (!values) return 'failed'; saving.current = true; setSaveStatus('saving'); try { const outcome = await saveQuiz(answers, times, values); if (outcome.status === 'saved' && typeof outcome.score === 'number') setScore(outcome.score); setSaveStatus(outcome.status); return outcome.status; } finally { saving.current = false; } }, []);
+  const completeQuiz = useCallback((completedAnswers: number[], qs: readonly Question[] = shuffledQuestions, values: Profile | null = profile) => { const canonical = toCanonical(completedAnswers, qs); const times = timesRef.current.slice(); submissionRef.current = { answers: canonical, times }; const value = calculateScore(completedAnswers, qs); setAnswers(completedAnswers); setScore(value); setScreen('analysis'); return { score: value, saved: persist(canonical, times, values) }; }, [persist, shuffledQuestions, profile]);
+  useEffect(() => registerQuizTool(async (completedAnswers, qs, values, times) => {
     if (saving.current) throw new Error('A result is still being saved');
+    if (values) setProfile(values);
+    if (times) timesRef.current = [...times];
     let completion!: ReturnType<typeof completeQuiz>;
     flushSync(() => { completion = completeQuiz(completedAnswers, qs ?? shuffledQuestions, values ?? profile); });
     const saved = await completion.saved;
     flushSync(() => setScreen('result'));
-    return { result: completion.result, score: completion.score, saved };
+    return { score: completion.score, saved };
   }), [completeQuiz, shuffledQuestions, profile]);
   const chooseAnswer = (answerIndex: number) => {
     if (answeredIndex.current === index) return;
     answeredIndex.current = index;
     haptic();
+    timesRef.current[index] = Date.now() - questionStart.current;
     const updated = [...answers];
     updated[index] = answerIndex;
     setAnswers(updated);
@@ -61,7 +68,7 @@ export default function App() {
     {screen === 'profile' && <ProfileScreen onSubmit={beginQuiz} onBack={back} />}
     {screen === 'question' && <QuestionScreen index={index} question={shuffledQuestions[index]} selected={answers[index]} onSelect={chooseAnswer} onBack={back} />}
     {screen === 'analysis' && <AnalysisScreen onComplete={reveal} />}
-    {screen === 'result' && <ResultScreen score={score} onNext={() => setScreen('ct')} onRestart={start} saveStatus={saveStatus} onSave={() => void persist(scoreToResultId(score), profile)} />}
+    {screen === 'result' && <ResultScreen score={score} onNext={() => setScreen('ct')} onRestart={start} saveStatus={saveStatus} onSave={() => { const sub = submissionRef.current; void persist(sub?.answers ?? [], sub?.times ?? [], profile); }} />}
     {screen === 'ct' && <CTScreen onBack={back} />}
   </motion.div></AnimatePresence></main><footer><span>{copy.footer}<Asterisk className="footer-dot" size={17} aria-hidden="true" /></span><span>Школа Актива 2026</span></footer></div></MotionConfig>;
 }
