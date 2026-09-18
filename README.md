@@ -179,10 +179,12 @@ npm run build
 ```text
 src/
   screens/           Start, Question, Analysis, Result, CT
-  components/        AnswerCard, ProgressBar, StatBar
-  data/              вопросы, результаты, тексты
-  logic/             подсчёт, независимо от React
+  components/        AnswerCard, ProgressBar, Mascot (цветы ША)
+  data/              вопросы, тексты
+  logic/             подсчёт баллов, независимо от React
   lib/               Telegram SDK, сохранение, необязательный WebMCP
+public/brand-sha/    веб-ассеты ББ: цветы, 3D-элементы, wallpaper-hero
+docs/brandbook/      исходники ББ: стрип, цвета, шрифты, обои ТГК (в Docker не едут)
 bot/__main__.py       запуск бота и HTTP в одном event loop
 bot/admin.py          админка в личном чате с ботом
 bot/broadcast.py      отправка рассылки и обработка Telegram-ошибок
