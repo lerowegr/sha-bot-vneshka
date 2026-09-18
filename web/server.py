@@ -7,7 +7,7 @@ from pathlib import Path
 import aiosqlite
 from aiohttp import web
 
-from database.quiz import QuizDatabase, RESULTS
+from database.quiz import AlreadyCompleted, QuizDatabase, RESULTS, validate_profile
 from web.telegram_auth import TelegramAuthError, validate_init_data
 
 logger = logging.getLogger(__name__)
@@ -30,17 +30,23 @@ def create_app(*, bot_token: str, database_path: str | Path,
             payload = await request.json()
         except (json.JSONDecodeError, UnicodeDecodeError):
             return web.json_response({"error": "invalid_json"}, status=400)
-        if not isinstance(payload, dict) or set(payload) != {"initData", "result"}:
+        if not isinstance(payload, dict) or set(payload) != {"initData", "result", "profile"}:
             return web.json_response({"error": "invalid_payload"}, status=400)
         result = payload["result"]
         if not isinstance(result, str) or result not in RESULTS:
             return web.json_response({"error": "invalid_result"}, status=400)
         try:
+            validate_profile(payload["profile"])
+        except ValueError:
+            return web.json_response({"error": "invalid_profile"}, status=400)
+        try:
             user = validate_init_data(payload["initData"], bot_token, max_age=max_age)
         except TelegramAuthError:
             return web.json_response({"error": "invalid_init_data"}, status=401)
         try:
-            await db.complete(user.id, user.username, result)
+            await db.complete(user.id, user.username, result, payload["profile"])
+        except AlreadyCompleted:
+            return web.json_response({"error": "already_completed"}, status=409)
         except aiosqlite.Error:
             logger.error("Quiz database write failed")
             return web.json_response({"error": "storage_unavailable"}, status=503)

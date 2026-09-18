@@ -77,14 +77,20 @@ def delivery_report(counts: dict[str, int]) -> str:
 def participants_csv(rows: list[dict]) -> bytes:
     output = io.StringIO(newline='')
     writer = csv.writer(output)
-    writer.writerow(['telegram_user_id', 'telegram_username', 'result', 'completed_at_utc'])
+    writer.writerow(['telegram_user_id', 'telegram_username', 'result',
+                     'last_name', 'first_name', 'middle_name', 'course',
+                     'student_id', 'phone', 'completed_at_utc'])
     for row in rows:
         # Prevent formula interpretation in spreadsheet apps, including unusual
         # signed usernames. Identity remains the numeric Telegram ID.
         username = row['telegram_username'] or ''
         if username.startswith(('=', '+', '-', '@', '\t', '\r', '\n')):
             username = "'" + username
-        writer.writerow([row['telegram_user_id'], username, row['result'], row['completed_at']])
+        writer.writerow([row['telegram_user_id'], username, row['result'],
+                         row.get('last_name') or '', row.get('first_name') or '',
+                         row.get('middle_name') or '', row.get('course') or '',
+                         row.get('student_id') or '', row.get('phone') or '',
+                         row['completed_at']])
     return output.getvalue().encode('utf-8-sig')
 
 
@@ -145,7 +151,10 @@ def create_admin_router(quiz: QuizDatabase, admin_ids: frozenset[int], runner: B
             lines.append(f'{SCORE_LABELS.get(result_id, result_id)}: {count} ({percent:.1f}%)')
         lines.extend(['', f"В списке рассылки: {summary['eligible']}",
                       f"Отписались: {total - summary['eligible']}",
-                      'Повторные прохождения обновляют результат и дату. Посещения, незавершённые тесты и прочтения не отслеживаются.'])
+                      f"Дублей по телефону: {summary.get('dup_phones', 0)}",
+                      f"Дублей по студбилету: {summary.get('dup_student_ids', 0)}",
+                      'Одна попытка на человека: повторные прохождения отклоняются, засчитывается первый результат.',
+                      'Посещения, незавершённые тесты и прочтения не отслеживаются.'])
         await message.answer('\n'.join(lines), parse_mode=None)
 
     async def export(message: Message) -> None:
