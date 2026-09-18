@@ -5,7 +5,6 @@ const ART = {
   hero: '/brand-sha/flower-purple.png',
   friend: '/brand-sha/blob-green.png',
   cheer: '/brand-sha/flower-yellow.png',
-  curious: '/brand-sha/flower-orange-sleepy.png',
 } as const;
 
 export type MascotMood = keyof typeof ART;

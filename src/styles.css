@@ -148,7 +148,9 @@ footer>span:first-child { display: flex; align-items: center; gap: 10px; }
 .ct-screen { width: 100%; }.ct-content { text-align: center; max-width: 590px; margin: auto; }.ct-content>.mascot { width: 215px; margin: -45px auto 0; }
 .ct-content h2 { font-family: var(--pixel); font-size: clamp(34px, 5.8vw, 64px); line-height: 1.05; letter-spacing: 0; font-weight: 700; margin: 20px 0 25px; }.ct-content p { font-size: 16px; line-height: 1.7; }.ct-content .ct-intro { font-family: var(--serif); font-size: 26px; font-weight: 700; }.ct-content .primary { max-width: 420px; width: 100%; margin: 28px auto 0; }.ct-content .channel-soon { font-size: 12px; color: var(--muted); }.ct-content .goodbye { margin: 28px 0 0; font-family: var(--script); font-size: 28px; }
 .ct-logo { width: min(78%, 300px); height: auto; margin: 0 auto; display: block; }
-.ct-wallpaper { width: 100%; max-width: 440px; margin: 6px auto 0; border: 2px solid var(--ink); border-radius: 18px; box-shadow: 5px 6px 0 var(--ink); }
+.ct-links { display: flex; flex-direction: column; gap: 14px; max-width: 420px; margin: 28px auto 0; }
+.ct-content .ct-links .primary { margin: 0; max-width: none; width: 100%; }
+.primary.secondary { background: var(--surface); }
 @keyframes mascot-bob { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-9px) rotate(1deg); } }
 @keyframes wave { 0%, 55%, 100% { transform: rotate(0); } 65%, 85% { transform: rotate(12deg); } 75%, 95% { transform: rotate(-9deg); } }
 @keyframes blink { 0%, 43%, 47%, 100% { transform: scaleY(1); } 45% { transform: scaleY(.08); } }
