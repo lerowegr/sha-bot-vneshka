@@ -63,6 +63,7 @@ async def main() -> None:
         admin_ids = parse_admin_ids(os.environ.get('ADMIN_IDS', ''))
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    server_options['admin_ids'] = admin_ids
 
     @router.message(CommandStart(), F.chat.type == "private")
     async def start(message: Message, state: FSMContext) -> None:

@@ -76,8 +76,9 @@ def delivery_report(counts: dict[str, int]) -> str:
 def participants_csv(rows: list[dict], details: dict[int, dict] | None = None) -> bytes:
     from database.quiz import QUESTIONS
     details = details or {}
+    # Semicolons: Russian Excel splits rows by ; out of the box.
     output = io.StringIO(newline='')
-    writer = csv.writer(output)
+    writer = csv.writer(output, delimiter=';')
     header = (['telegram_user_id', 'telegram_username', 'result',
                'last_name', 'first_name', 'middle_name', 'course', 'faculty',
                'student_id', 'phone', 'total_time_s'] +
@@ -95,7 +96,9 @@ def participants_csv(rows: list[dict], details: dict[int, dict] | None = None) -
         flags = entry.get('flags') or [None] * len(QUESTIONS)
         times = entry.get('times') or [None] * len(QUESTIONS)
         total = row.get('total_ms')
-        writer.writerow([row['telegram_user_id'], username, row['result'],
+        result = row['result']
+        score = result.split('_')[1] if isinstance(result, str) and '_' in result else result
+        writer.writerow([row['telegram_user_id'], username, score,
                          row.get('last_name') or '', row.get('first_name') or '',
                          row.get('middle_name') or '', _course_label(row.get('course')),
                          row.get('faculty') or '',

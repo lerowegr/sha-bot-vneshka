@@ -1,9 +1,9 @@
-import { ArrowUpRight, Clock3, Sparkles } from 'lucide-react';
+import { ArrowUpRight, BarChart3, Clock3, Sparkles } from 'lucide-react';
 import { motion } from 'motion/react';
 import { copy } from '../data/copy';
 import { Mascot } from '../components/Mascot';
 
-export function StartScreen({ onStart }: { onStart: () => void }) {
+export function StartScreen({ onStart, onAdmin }: { onStart: () => void; onAdmin?: () => void }) {
   return <section className="start-screen">
     <div className="hero-grid">
       <div className="intro">
@@ -28,6 +28,7 @@ export function StartScreen({ onStart }: { onStart: () => void }) {
       <motion.button className="primary start-button" whileTap={{ scale: .96, rotateX: 5 }} onClick={onStart}>{copy.start.button}<span className="button-icon"><ArrowUpRight size={25} /></span></motion.button>
       <div className="start-meta cta-meta"><span><Clock3 size={16} />{copy.start.time}</span><span className="meta-dot" /><span>Результат сразу</span></div>
       <p className="start-hint"><span className="handwritten">P. S.</span>{copy.start.hint}</p>
+      {onAdmin && <button className="text-button admin-link" onClick={onAdmin}><BarChart3 size={15} />Дашборд конкурса</button>}
     </motion.div>
   </section>;
 }

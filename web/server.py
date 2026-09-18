@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 
 def create_app(*, bot_token: str, database_path: str | Path,
-               static_dir: str | Path | None = None, max_age: int = 3600) -> web.Application:
+               static_dir: str | Path | None = None, max_age: int = 3600,
+               admin_ids: frozenset[int] = frozenset()) -> web.Application:
     if not bot_token or max_age <= 0:
         raise ValueError("BOT_TOKEN and positive max_age are required")
     db = QuizDatabase(database_path)
@@ -25,6 +26,34 @@ def create_app(*, bot_token: str, database_path: str | Path,
 
     async def initialize(_: web.Application) -> None:
         await db.initialize()
+
+    async def overview(request: web.Request) -> web.Response:
+        """Admin dashboard data. initData comes as a query param; only ADMIN_IDS pass."""
+        raw = request.query.get("initData", "")
+        try:
+            user = validate_init_data(raw, bot_token, max_age=max_age)
+        except TelegramAuthError:
+            return web.json_response({"error": "invalid_init_data"}, status=401)
+        if user.id not in admin_ids:
+            return web.json_response({"error": "forbidden"}, status=403)
+        try:
+            summary = await db.summary()
+            matrix = await db.faculty_course_matrix()
+        except aiosqlite.Error:
+            logger.error("Admin overview read failed")
+            return web.json_response({"error": "storage_unavailable"}, status=503)
+        by_result = summary["by_result"]
+        total = summary["total"]
+        avg_score = (sum(int(key.split("_")[1]) * count for key, count in by_result.items()) / total) if total else 0
+        return web.json_response({
+            "ok": True, "total": total, "avg_score": round(avg_score, 2),
+            "by_result": {key.split("_")[1]: count for key, count in by_result.items()},
+            "by_course": summary["by_course"], "by_faculty": summary["by_faculty"],
+            "matrix": matrix, "questions": summary["questions"],
+            "avg_total_ms": summary["avg_total_ms"], "timed_count": summary["timed_count"],
+            "eligible": summary["eligible"], "dup_phones": summary["dup_phones"],
+            "dup_student_ids": summary["dup_student_ids"],
+        }, headers={"Cache-Control": "no-store"})
 
     async def complete(request: web.Request) -> web.Response:
         if request.content_type != "application/json":
@@ -62,6 +91,7 @@ def create_app(*, bot_token: str, database_path: str | Path,
 
     app.on_startup.append(initialize)
     app.router.add_get("/healthz", health)
+    app.router.add_get("/api/admin/overview", overview)
     app.router.add_post("/api/quiz/complete", complete)
 
     if static_dir is not None:

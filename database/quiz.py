@@ -372,3 +372,20 @@ class QuizDatabase:
                     "by_faculty": by_faculty,
                     "questions": questions, "timed_count": timed_count,
                     "avg_total_ms": avg_total_ms}
+
+    async def faculty_course_matrix(self) -> dict[str, dict[str, int]]:
+        """{faculty: {course_code: participants}} for dashboard slices."""
+        matrix = {faculty: {course: 0 for course in COURSES} for faculty in FACULTIES}
+        async with aiosqlite.connect(self.path, timeout=10) as db:
+            async with db.execute("""
+                SELECT faculty, course, COUNT(*) FROM quiz_users
+                WHERE faculty IS NOT NULL AND course IS NOT NULL
+                GROUP BY faculty, course
+            """) as cursor:
+                async for faculty, raw_course, count in cursor:
+                    if faculty not in matrix:
+                        continue
+                    course = LEGACY_COURSES.get(raw_course, raw_course) if isinstance(raw_course, int) else raw_course
+                    if course in COURSES:
+                        matrix[faculty][course] += count
+        return matrix

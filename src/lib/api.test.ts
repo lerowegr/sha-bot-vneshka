@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { saveQuiz, type Profile } from './api';
+import { fetchOverview, saveQuiz, type Profile } from './api';
 const PROFILE: Profile = { last_name: 'Иванова', first_name: 'Анна', middle_name: 'Сергеевна', course: 'b2', faculty: 'СНиМК', student_id: '123456', phone: '+79161234567' };
 const ANSWERS = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0];
 const TIMES = [1200, 900, 1500, 800, 1100, 950, 1300, 700, 1000, 600];
@@ -31,5 +31,24 @@ describe('saving quizzes', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, score: 7 }) }));
     expect(await saveQuiz(ANSWERS, TIMES, PROFILE)).toEqual({ status: 'failed' });
     expect(await saveQuiz(ANSWERS, TIMES, PROFILE)).toEqual({ status: 'saved', score: 7 });
+  });
+});
+describe('admin overview', () => {
+  it('returns null outside Telegram', async () => {
+    vi.stubGlobal('window', {});
+    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
+    expect(await fetchOverview()).toBeNull(); expect(fetch).not.toHaveBeenCalled();
+  });
+  it('returns the dashboard payload for admins', async () => {
+    vi.stubGlobal('window', { Telegram: { WebApp: { initData: 'signed' } } });
+    const payload = { ok: true, total: 2 };
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => payload }); vi.stubGlobal('fetch', fetch);
+    expect(await fetchOverview()).toEqual(payload);
+    expect(fetch.mock.calls[0][0]).toContain('/api/admin/overview?initData=signed');
+  });
+  it('returns null when access is denied', async () => {
+    vi.stubGlobal('window', { Telegram: { WebApp: { initData: 'signed' } } });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+    expect(await fetchOverview()).toBeNull();
   });
 });

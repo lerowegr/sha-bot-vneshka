@@ -187,6 +187,33 @@ footer>span:first-child { display: flex; align-items: center; gap: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition-duration: .01ms !important; }.it-word svg { stroke-dashoffset: 0; } }
 
+.admin-link { margin-top: 14px; color: var(--ink); font-weight: 700; }
+.admin-screen h2 { font-family: var(--pixel); font-size: clamp(28px, 7vw, 40px); letter-spacing: 0; margin: 14px 0 18px; }
+.stat-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 8px; }
+.stat-card { background: var(--surface); border: 2px solid var(--ink); border-radius: 14px; padding: 14px 8px; text-align: center; box-shadow: 3px 3px 0 var(--ink); display: flex; flex-direction: column; gap: 4px; }
+.stat-card strong { font-family: var(--pixel); font-size: 24px; }
+.stat-card span { font-size: 10px; color: var(--muted); line-height: 1.3; }
+.dash-block { margin-top: 26px; padding: 20px 16px; background: var(--surface); border: 2px solid var(--ink); border-radius: 18px; box-shadow: 4px 4px 0 var(--ink); }
+.dash-block > .eyebrow { margin-bottom: 16px; color: var(--ink); font-weight: 700; }
+.vbars { display: flex; align-items: flex-end; gap: 6px; }
+.vbar { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; }
+.vbar-track { height: 110px; width: 100%; display: flex; align-items: flex-end; background: #f0ebdd; border: 1px solid #c9c2b3; border-radius: 7px; overflow: hidden; }
+.vbar-fill { width: 100%; min-height: 3px; }
+.vbar-label { font-family: var(--pixel); font-size: 13px; }
+.vbar-count { font-size: 10px; color: var(--muted); }
+.hbar { margin-bottom: 13px; }
+.hbar:last-child { margin-bottom: 0; }
+.hbar-top { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+.hbar-top span:last-child { color: var(--muted); font-weight: 400; white-space: nowrap; }
+.hbar-track { height: 14px; background: #f0ebdd; border: 1px solid #c9c2b3; border-radius: 8px; overflow: hidden; }
+.hbar-fill { height: 100%; min-width: 4px; border-radius: 6px; transition: width .4s ease; }
+.matrix-wrap { overflow-x: auto; }
+.matrix { border-collapse: collapse; font-size: 11px; width: 100%; }
+.matrix th, .matrix td { border: 1px solid var(--line); padding: 7px 6px; text-align: center; white-space: nowrap; }
+.matrix th { background: var(--sha-yellow-soft); font-family: monospace; font-size: 10px; }
+.matrix td:first-child { text-align: left; font-weight: 700; }
+.dash-note { margin-top: 20px; font-size: 12px; }
+.admin-screen .primary { margin-top: 14px; }
 /* Telegram Mini App layout: intentionally narrow, vertical and touch-first. */
 .app-shell { max-width: 520px; --page-gutter: 21px; overflow: hidden; }
 .header { padding-bottom: 16px; }

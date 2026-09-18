@@ -186,6 +186,44 @@ async def test_api_validation_and_persistence(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_admin_overview_auth_and_shape(tmp_path):
+    from urllib.parse import quote
+    db_path = tmp_path / "quiz.sqlite3"
+    db = QuizDatabase(db_path)
+    await db.initialize()
+    good = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0]
+    times = [1000] * 10
+    await db.complete(1, "one", good, times, prof(1))
+    await db.complete(2, None, [0] * 10, [2000] * 10, prof(2, course="m1", faculty="ВШУ"))
+
+    async def get(client, init_data):
+        return await client.get("/api/admin/overview?initData=" + quote(init_data, safe=""))
+
+    async with TestClient(TestServer(create_app(bot_token=TOKEN, database_path=db_path))) as client:
+        assert (await get(client, "invalid")).status == 401
+        assert (await get(client, signed())).status == 403
+
+    async with TestClient(TestServer(create_app(bot_token=TOKEN, database_path=db_path,
+                                                admin_ids=frozenset({123456})))) as client:
+        response = await get(client, signed())
+        assert response.status == 200
+        body = await response.json()
+        assert body["ok"] is True and body["total"] == 2
+        assert body["avg_score"] == 7.5
+        assert body["by_result"]["10"] == 1 and body["by_result"]["5"] == 1
+        assert body["by_result"]["0"] == 0 and len(body["by_result"]) == 11
+        assert body["by_course"]["b2"] == 1 and body["by_course"]["m1"] == 1
+        assert body["by_course"]["b1"] == 0 and len(body["by_course"]) == 6
+        assert body["by_faculty"]["СНиМК"] == 1 and body["by_faculty"]["ВШУ"] == 1
+        assert len(body["by_faculty"]) == 8
+        assert body["matrix"]["СНиМК"]["b2"] == 1 and body["matrix"]["ВШУ"]["m1"] == 1
+        assert len(body["questions"]) == 10 and body["questions"][0]["attempts"] == 2
+        assert body["timed_count"] == 2 and body["avg_total_ms"] == 15000
+        stranger = signed(user={"id": 999, "username": "x"})
+        assert (await get(client, stranger)).status == 403
+
+
+@pytest.mark.asyncio
 async def test_static_files_and_private_file_protection(tmp_path):
     static = tmp_path / 'dist'
     static.mkdir()

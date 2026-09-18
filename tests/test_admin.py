@@ -113,7 +113,7 @@ def test_csv_has_latest_fields_and_neutralizes_formulas():
                              'middle_name': 'Сергеевна', 'course': 'b2', 'faculty': 'СНиМК',
                              'student_id': '100001',
                              'phone': '+79000000001', 'completed_at': '2026-09-08T00:00:00+00:00'}])
-    rows = list(csv.reader(io.StringIO(raw.decode('utf-8-sig'))))
+    rows = list(csv.reader(io.StringIO(raw.decode('utf-8-sig')), delimiter=';'))
     assert rows[0][:11] == ['telegram_user_id', 'telegram_username', 'result', 'last_name',
                             'first_name', 'middle_name', 'course', 'faculty', 'student_id', 'phone', 'total_time_s']
     assert rows[0][11:21] == [f'q{i}' for i in range(1, 11)]
