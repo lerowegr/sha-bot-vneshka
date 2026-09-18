@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
+.env
+.env.local
+/data/
+.pytest_cache/
+*.sqlite*
+.DS_Store
+.codex
+.openai

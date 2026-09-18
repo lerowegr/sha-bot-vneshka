@@ -1,0 +1,30 @@
+name: sha-2026-quiz-preview
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        VITE_TELEGRAM_CHANNEL_URL: ${VITE_TELEGRAM_CHANNEL_URL:-}
+    image: sha-2026-quiz:latest
+    init: true
+    environment:
+      BOT_POLLING_ENABLED: "false"
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: 8080
+      QUIZ_DB_PATH: /app/data/quiz.sqlite3
+      MINI_APP_URL: https://example.com
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    volumes:
+      - quiz_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  quiz_data:
+    name: sha-2026-quiz-preview-data

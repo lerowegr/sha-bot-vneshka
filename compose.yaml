@@ -1,0 +1,44 @@
+name: sha-2026-quiz
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        VITE_TELEGRAM_CHANNEL_URL: ${VITE_TELEGRAM_CHANNEL_URL:-}
+    image: sha-2026-quiz:latest
+    init: true
+    restart: unless-stopped
+    env_file:
+      - path: ${ENV_FILE:-.env}
+        required: false
+    environment:
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: 8080
+      QUIZ_DB_PATH: /app/data/quiz.sqlite3
+      MINI_APP_URL: https://${APP_DOMAIN:-ik-miniapp.ru}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    volumes:
+      - quiz_data:/app/data
+    networks:
+      arkadium_shared:
+        aliases:
+          - sha-2026-quiz-app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    stop_grace_period: 20s
+
+volumes:
+  quiz_data:
+    external: true
+    name: sha-2026-quiz-data
+
+networks:
+  arkadium_shared:
+    external: true
+    name: arkadium_shared
