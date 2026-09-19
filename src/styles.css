@@ -216,6 +216,20 @@ footer>span:first-child { display: flex; align-items: center; gap: 10px; }
 .matrix th { background: var(--sha-yellow-soft); font-family: monospace; font-size: 10px; }
 .matrix td:first-child { text-align: left; font-weight: 700; }
 .dash-note { margin-top: 20px; font-size: 12px; }
+.raffle-controls { display: flex; align-items: center; gap: 9px; margin: 16px 0 4px; }
+.raffle-count { width: 46px; height: 46px; border: 1.5px solid var(--ink); border-radius: 12px; background: var(--surface); font-weight: 800; font-size: 15px; color: var(--ink); }
+.raffle-count.active { background: var(--ink); color: var(--paper); box-shadow: 2px 2px 0 #bdb9ae; }
+.raffle-go { flex: 1; margin: 0; min-height: 52px; }
+.winners { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.winner-card { display: flex; gap: 12px; align-items: flex-start; padding: 14px; background: var(--sha-yellow-soft); border: 2px solid var(--ink); border-radius: 14px; box-shadow: 3px 3px 0 var(--ink); }
+.winner-card svg { flex-shrink: 0; color: var(--orange-deep, #d96a06); margin-top: 2px; }
+.winner-card div { display: flex; flex-direction: column; gap: 3px; }
+.winner-card strong { font-size: 16px; }
+.winner-card span { font-size: 12px; color: var(--muted); }
+.winner-card .winner-phone { font-family: monospace; font-size: 14px; color: var(--ink); }
+.raffle-history { margin-top: 18px; padding-top: 14px; border-top: 1.5px dashed rgba(36,35,31,.4); }
+.raffle-history .eyebrow { margin-bottom: 10px; }
+.raffle-history p { font-size: 12px; margin: 0 0 8px; }
 .admin-screen .primary { margin-top: 14px; }
 /* Telegram Mini App layout: intentionally narrow, vertical and touch-first. */
 .app-shell { max-width: 520px; --page-gutter: 21px; overflow: hidden; }

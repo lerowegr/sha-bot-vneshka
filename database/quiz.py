@@ -1,5 +1,7 @@
 """Only completed participants are stored; every write is an atomic upsert."""
+import json
 import re
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -160,6 +162,15 @@ class QuizDatabase:
                     correct INTEGER NOT NULL,
                     time_ms INTEGER NOT NULL,
                     PRIMARY KEY (telegram_user_id, q_index)
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS raffles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    admin_id INTEGER NOT NULL,
+                    asked_count INTEGER NOT NULL,
+                    winners_json TEXT NOT NULL,
+                    created_at DATETIME NOT NULL
                 )
             """)
             # Migrate legacy CT base (backend/frontend/...) to new score_* schema.
@@ -389,3 +400,53 @@ class QuizDatabase:
                     if course in COURSES:
                         matrix[faculty][course] += count
         return matrix
+
+    async def draw_winners(self, admin_id: int, count: int) -> tuple[int, list[dict]]:
+        """Pick `count` random participants (crypto-secure) and journal the draw.
+
+        Returns (draw_id, winners). Raises ValueError on bad count or empty pool.
+        """
+        if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= 20:
+            raise ValueError("count must be an integer 1..20")
+        pool = await self.participants()
+        if not pool:
+            raise ValueError("no participants yet")
+        if count > len(pool):
+            raise ValueError("count exceeds participants")
+        rng = secrets.SystemRandom()
+        winners = rng.sample(pool, count)
+        snapshot = [{
+            "telegram_user_id": row["telegram_user_id"],
+            "telegram_username": row.get("telegram_username"),
+            "last_name": row.get("last_name"), "first_name": row.get("first_name"),
+            "middle_name": row.get("middle_name"), "course": row.get("course"),
+            "faculty": row.get("faculty"), "student_id": row.get("student_id"),
+            "phone": row.get("phone"), "result": row.get("result"),
+        } for row in winners]
+        async with aiosqlite.connect(self.path, timeout=10) as db:
+            async with db.execute("""
+                INSERT INTO raffles (admin_id, asked_count, winners_json, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (admin_id, count, json.dumps(snapshot, ensure_ascii=False),
+                  datetime.now(timezone.utc).isoformat())) as cursor:
+                draw_id = cursor.lastrowid
+            await db.commit()
+        return draw_id, snapshot
+
+    async def recent_raffles(self, limit: int = 10) -> list[dict]:
+        """Latest draws, newest first."""
+        async with aiosqlite.connect(self.path, timeout=10) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("""
+                SELECT id, admin_id, asked_count, winners_json, created_at
+                FROM raffles ORDER BY id DESC LIMIT ?
+            """, (limit,)) as cursor:
+                draws = []
+                async for row in cursor:
+                    draws.append({
+                        "id": row["id"], "admin_id": row["admin_id"],
+                        "asked_count": row["asked_count"],
+                        "winners": json.loads(row["winners_json"]),
+                        "created_at": row["created_at"],
+                    })
+        return draws

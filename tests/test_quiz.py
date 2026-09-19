@@ -254,6 +254,58 @@ async def test_quiz_status_locks_retakes_but_not_admins(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_raffle_draw_and_history(tmp_path):
+    db_path = tmp_path / "quiz.sqlite3"
+    db = QuizDatabase(db_path)
+    await db.initialize()
+    good = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0]
+    times = [1000] * 10
+    for i in range(1, 4):
+        await db.complete(i, f"user{i}", good, times, prof(i))
+    with pytest.raises(ValueError):
+        await db.draw_winners(10, 0)
+    with pytest.raises(ValueError):
+        await db.draw_winners(10, 99)
+    draw_id, winners = await db.draw_winners(10, 2)
+    assert draw_id == 1 and len(winners) == 2
+    assert len({w["telegram_user_id"] for w in winners}) == 2
+    assert all(w["phone"].startswith("+79") for w in winners)
+    history = await db.recent_raffles()
+    assert len(history) == 1 and history[0]["admin_id"] == 10
+    assert {w["telegram_user_id"] for w in history[0]["winners"]} == {w["telegram_user_id"] for w in winners}
+
+
+@pytest.mark.asyncio
+async def test_raffle_endpoint_auth_and_validation(tmp_path):
+    db_path = tmp_path / "quiz.sqlite3"
+    db = QuizDatabase(db_path)
+    await db.initialize()
+    good = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0]
+    await db.complete(1, "one", good, [1000] * 10, prof(1))
+    app = create_app(bot_token=TOKEN, database_path=db_path, admin_ids=frozenset({123456}))
+    async with TestClient(TestServer(app)) as client:
+        assert (await client.post("/api/admin/raffle", data="x")).status == 415
+        assert (await client.post("/api/admin/raffle", json={"initData": "bad", "count": 1})).status == 401
+        stranger = signed(user={"id": 999, "username": "x"})
+        assert (await client.post("/api/admin/raffle", json={"initData": stranger, "count": 1})).status == 403
+        me = signed()
+        assert (await client.post("/api/admin/raffle", json={"initData": me})).status == 400
+        for bad_count in [0, 21, "1", 1.5, None]:
+            response = await client.post("/api/admin/raffle", json={"initData": me, "count": bad_count})
+            assert response.status == 400
+        response = await client.post("/api/admin/raffle", json={"initData": me, "count": 5})
+        assert response.status == 400
+        response = await client.post("/api/admin/raffle", json={"initData": me, "count": 1})
+        assert response.status == 200
+        body = await response.json()
+        assert body["ok"] is True and body["draw_id"] == 1 and len(body["winners"]) == 1
+        assert body["winners"][0]["telegram_user_id"] == 1
+        from urllib.parse import quote
+        overview = await (await client.get("/api/admin/overview?initData=" + quote(me, safe=""))).json()
+        assert len(overview["raffles"]) == 1 and overview["raffles"][0]["id"] == 1
+
+
+@pytest.mark.asyncio
 async def test_static_files_and_private_file_protection(tmp_path):
     static = tmp_path / 'dist'
     static.mkdir()
