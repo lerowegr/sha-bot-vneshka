@@ -20,6 +20,17 @@ export async function fetchOverview(): Promise<Overview | null> {
     return body.ok === true ? (body as Overview) : null;
   } catch { return null; }
 }
+export type QuizStatus = { completed: boolean; score?: string; result?: string; is_admin: boolean };
+export async function fetchStatus(): Promise<QuizStatus | null> {
+  const data = initData();
+  if (!data) return null;
+  try {
+    const response = await fetch(`/api/quiz/status?initData=${encodeURIComponent(data)}`, { signal: AbortSignal.timeout(10000) });
+    if (!response.ok) return null;
+    const body = await response.json();
+    return body.ok === true ? (body as QuizStatus) : null;
+  } catch { return null; }
+}
 export async function saveQuiz(answers: number[], times: number[], profile: Profile): Promise<SaveOutcome> {
   const data = initData();
   if (!data) return { status: 'preview' };

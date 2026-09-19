@@ -86,12 +86,34 @@ def create_app(*, bot_token: str, database_path: str | Path,
         return web.json_response({"ok": True, "score": score, "result": stored_result},
                                  headers={"Cache-Control": "no-store"})
 
+    async def status(request: web.Request) -> web.Response:
+        """Has this user already completed? Used to lock the UI against retakes."""
+        raw = request.query.get("initData", "")
+        try:
+            user = validate_init_data(raw, bot_token, max_age=max_age)
+        except TelegramAuthError:
+            return web.json_response({"error": "invalid_init_data"}, status=401)
+        try:
+            participants = await db.participants()
+        except aiosqlite.Error:
+            logger.error("Quiz status read failed")
+            return web.json_response({"error": "storage_unavailable"}, status=503)
+        row = next((item for item in participants if item["telegram_user_id"] == user.id), None)
+        if row is None:
+            return web.json_response({"ok": True, "completed": False, "is_admin": user.id in admin_ids},
+                                     headers={"Cache-Control": "no-store"})
+        score = row["result"].split("_")[1] if isinstance(row.get("result"), str) else None
+        return web.json_response({"ok": True, "completed": True, "score": score,
+                                  "result": row.get("result"), "is_admin": user.id in admin_ids},
+                                 headers={"Cache-Control": "no-store"})
+
     async def health(_: web.Request) -> web.Response:
         return web.json_response({"status": "ok"}, headers={"Cache-Control": "no-store"})
 
     app.on_startup.append(initialize)
     app.router.add_get("/healthz", health)
     app.router.add_get("/api/admin/overview", overview)
+    app.router.add_get("/api/quiz/status", status)
     app.router.add_post("/api/quiz/complete", complete)
 
     if static_dir is not None:

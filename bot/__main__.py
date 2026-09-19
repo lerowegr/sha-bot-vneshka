@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -16,6 +17,16 @@ from database.broadcasts import BroadcastStore
 from bot.admin import BroadcastRunner, create_admin_router, parse_admin_ids
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def frontend_version(static_dir: Path) -> str:
+    """Hash of the built JS bundle, used as ?v= to bust Telegram WebView cache."""
+    try:
+        html = (static_dir / "index.html").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(r"/assets/index-([A-Za-z0-9_-]+)\.js", html)
+    return match.group(1) if match else ""
 
 
 def env_flag(name: str, default: bool = True) -> bool:
@@ -64,6 +75,8 @@ async def main() -> None:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     server_options['admin_ids'] = admin_ids
+    version = frontend_version(ROOT / 'dist')
+    webapp_url = f"{mini_app_url}?v={version}" if version else mini_app_url
 
     @router.message(CommandStart(), F.chat.type == "private")
     async def start(message: Message, state: FSMContext) -> None:
@@ -75,7 +88,7 @@ async def main() -> None:
             "потом 10 вопросов • в конце увидишь количество правильных ответов.\n"
             "Попытка одна! Скрин результата отправь в комментарии к конкурсному посту.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="ПРОЙТИ ТЕСТ ↗", web_app=WebAppInfo(url=mini_app_url))
+                InlineKeyboardButton(text="ПРОЙТИ ТЕСТ ↗", web_app=WebAppInfo(url=webapp_url))
             ]]),
         )
 

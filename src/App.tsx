@@ -4,6 +4,7 @@ import { AnimatePresence, MotionConfig, motion, useReducedMotion } from 'motion/
 import { ArrowUpRight, Asterisk } from 'lucide-react';
 import { CommitteeBrand } from './components/CommitteeBrand';
 import { StartScreen } from './screens/StartScreen';
+import { LockedScreen } from './screens/LockedScreen';
 import { AdminScreen } from './screens/AdminScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { QuestionScreen } from './screens/QuestionScreen';
@@ -14,9 +15,9 @@ import { copy } from './data/copy';
 import { questions, shuffleQuestionAnswers, TOTAL_QUESTIONS, type Question } from './data/questions';
 import { calculateScore, toCanonical } from './logic/calculateResult';
 import { haptic, setupTelegram, telegram } from './lib/telegram';
-import { saveQuiz, fetchOverview, type Overview, type Profile, type SaveStatus } from './lib/api';
+import { saveQuiz, fetchOverview, fetchStatus, type Overview, type Profile, type SaveStatus } from './lib/api';
 import { registerQuizTool } from './lib/webmcp';
-type Screen = 'start' | 'profile' | 'question' | 'analysis' | 'result' | 'ct' | 'admin';
+type Screen = 'start' | 'profile' | 'question' | 'analysis' | 'result' | 'ct' | 'admin' | 'locked';
 export default function App() {
   const [screen, setScreen] = useState<Screen>('start');
   const [index, setIndex] = useState(0);
@@ -24,6 +25,7 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [shuffledQuestions, setShuffledQuestions] = useState(() => shuffleQuestionAnswers(questions));
   const [score, setScore] = useState(0);
+  const [lockedScore, setLockedScore] = useState<number | null>(null);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const saving = useRef(false);
@@ -35,13 +37,21 @@ export default function App() {
   const reducedMotion = useReducedMotion();
   useEffect(setupTelegram, []);
   useEffect(() => { void fetchOverview().then(setOverview); }, []);
+  useEffect(() => {
+    void fetchStatus().then(status => {
+      if (!status || !status.completed || status.is_admin) return;
+      const value = Number.parseInt(status.score ?? '', 10);
+      setLockedScore(Number.isInteger(value) ? value : null);
+      setScreen('locked');
+    });
+  }, []);
   const refreshAdmin = useCallback(() => { void fetchOverview().then(data => { if (data) setOverview(data); }); }, []);
   const start = useCallback(() => { answeredIndex.current = null; setAnswers([]); setProfile(null); timesRef.current = []; submissionRef.current = null; setShuffledQuestions(shuffleQuestionAnswers(questions)); setIndex(0); setSaveStatus('idle'); setScreen('profile'); }, []);
   const beginQuiz = useCallback((values: Profile) => { answeredIndex.current = null; setAnswers([]); setProfile(values); timesRef.current = []; submissionRef.current = null; setIndex(0); setSaveStatus('idle'); setScreen('question'); }, []);
-  const back = useCallback(() => { if (navigationLock.current) return; navigationLock.current = true; answeredIndex.current = null; if (screen === 'ct' || screen === 'admin') setScreen(screen === 'admin' ? 'start' : 'result'); if (screen === 'profile') setScreen('start'); if (screen === 'question') { if (index === 0) setScreen('profile'); else setIndex(value => value - 1); } }, [screen, index]);
+  const back = useCallback(() => { if (navigationLock.current) return; navigationLock.current = true; answeredIndex.current = null; if (screen === 'admin') setScreen('start'); else if (screen === 'ct') setScreen('result'); if (screen === 'profile') setScreen('start'); if (screen === 'question') { if (index === 0) setScreen('profile'); else setIndex(value => value - 1); } }, [screen, index]);
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'instant' }); }, [screen, index]);
   useEffect(() => { if (screen === 'question') questionStart.current = Date.now(); }, [screen, index]);
-  useEffect(() => { const app = telegram(); if (!app?.initData || !app.isVersionAtLeast('6.1')) return; if (screen === 'question' || screen === 'profile' || screen === 'ct' || screen === 'admin') app.BackButton.show(); else app.BackButton.hide(); app.BackButton.onClick(back); return () => { app.BackButton.offClick(back); app.BackButton.hide(); }; }, [screen, back]);
+  useEffect(() => { const app = telegram(); if (!app?.initData || !app.isVersionAtLeast('6.1')) return; if (screen === 'question' || screen === 'profile' || screen === 'ct' || screen === 'admin' || screen === 'locked') app.BackButton.show(); else app.BackButton.hide(); app.BackButton.onClick(back); return () => { app.BackButton.offClick(back); app.BackButton.hide(); }; }, [screen, back]);
   const persist = useCallback(async (answers: number[], times: number[], values: Profile | null): Promise<SaveStatus> => { if (saving.current) return 'saving'; if (!values) return 'failed'; saving.current = true; setSaveStatus('saving'); try { const outcome = await saveQuiz(answers, times, values); if (outcome.status === 'saved' && typeof outcome.score === 'number') setScore(outcome.score); setSaveStatus(outcome.status); return outcome.status; } finally { saving.current = false; } }, []);
   const completeQuiz = useCallback((completedAnswers: number[], qs: readonly Question[] = shuffledQuestions, values: Profile | null = profile) => { const canonical = toCanonical(completedAnswers, qs); const times = timesRef.current.slice(); submissionRef.current = { answers: canonical, times }; const value = calculateScore(completedAnswers, qs); setAnswers(completedAnswers); setScore(value); setScreen('analysis'); return { score: value, saved: persist(canonical, times, values) }; }, [persist, shuffledQuestions, profile]);
   useEffect(() => registerQuizTool(async (completedAnswers, qs, values, times) => {
@@ -75,5 +85,6 @@ export default function App() {
     {screen === 'result' && <ResultScreen score={score} onNext={() => setScreen('ct')} onRestart={start} saveStatus={saveStatus} onSave={() => { const sub = submissionRef.current; void persist(sub?.answers ?? [], sub?.times ?? [], profile); }} />}
     {screen === 'ct' && <CTScreen onBack={back} />}
     {screen === 'admin' && overview && <AdminScreen data={overview} onRefresh={refreshAdmin} onBack={back} />}
+    {screen === 'locked' && <LockedScreen score={lockedScore} onNext={() => setScreen('ct')} />}
   </motion.div></AnimatePresence></main><footer><span>{copy.footer}<Asterisk className="footer-dot" size={17} aria-hidden="true" /></span><span>Школа Актива 2026</span></footer></div></MotionConfig>;
 }

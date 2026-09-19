@@ -11,7 +11,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from aiogram.methods import SendMessage
 from aiogram.types import CallbackQuery, Chat, Message, MessageEntity, Update, User
 
-from bot.__main__ import env_flag
+from bot.__main__ import env_flag, frontend_version
 from bot.admin import AdminOnly, BroadcastRunner, create_admin_router, parse_admin_ids, participants_csv
 from bot.broadcast import send_broadcast
 from database.broadcasts import BroadcastStore
@@ -54,6 +54,12 @@ def mock_bot():
     bot = Bot(TOKEN)
     bot.session = AsyncMock(return_value=message())
     return bot
+
+
+def test_frontend_version_reads_built_bundle(tmp_path):
+    assert frontend_version(tmp_path) == ""
+    (tmp_path / "index.html").write_text('<script src="/assets/index-AbC123xYz.js"></script>')
+    assert frontend_version(tmp_path) == "AbC123xYz"
 
 
 def test_admin_ids_fail_closed():

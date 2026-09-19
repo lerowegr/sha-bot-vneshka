@@ -224,6 +224,36 @@ async def test_admin_overview_auth_and_shape(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_quiz_status_locks_retakes_but_not_admins(tmp_path):
+    from urllib.parse import quote
+    db_path = tmp_path / "quiz.sqlite3"
+    db = QuizDatabase(db_path)
+    await db.initialize()
+    good = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0]
+    await db.complete(1, "one", good, [1000] * 10, prof(1))
+
+    async def get(client, init_data):
+        return await client.get("/api/quiz/status?initData=" + quote(init_data, safe=""))
+
+    async with TestClient(TestServer(create_app(bot_token=TOKEN, database_path=db_path))) as client:
+        assert (await get(client, "invalid")).status == 401
+        body = await (await get(client, signed())).json()
+        assert body == {"ok": True, "completed": False, "is_admin": False}
+        other = signed(user={"id": 777, "username": "new"})
+        body = await (await get(client, other)).json()
+        assert body["completed"] is False
+        mine = signed(user={"id": 1, "username": "one"})
+        body = await (await get(client, mine)).json()
+        assert body == {"ok": True, "completed": True, "score": "10",
+                        "result": "score_10", "is_admin": False}
+
+    async with TestClient(TestServer(create_app(bot_token=TOKEN, database_path=db_path,
+                                                admin_ids=frozenset({1})))) as client:
+        body = await (await get(client, signed(user={"id": 1, "username": "one"}))).json()
+        assert body["completed"] is True and body["is_admin"] is True
+
+
+@pytest.mark.asyncio
 async def test_static_files_and_private_file_protection(tmp_path):
     static = tmp_path / 'dist'
     static.mkdir()
