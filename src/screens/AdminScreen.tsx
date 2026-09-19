@@ -1,5 +1,6 @@
+import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, RotateCcw } from 'lucide-react';
-import type { Overview } from '../lib/api';
+import { fetchOverview, type Overview } from '../lib/api';
 
 const COLORS = ['#2CE719', '#BF2AFF', '#FF8512', '#1C63FF', '#FFCC00', '#F70302'];
 const COURSE_ORDER = ['b1', 'b2', 'b3', 'b4', 'm1', 'm2'];
@@ -18,7 +19,28 @@ function HBar({ label, value, max, color, hint }: { label: string; value: number
   </div>;
 }
 
-export function AdminScreen({ data, onRefresh, onBack }: { data: Overview; onRefresh: () => void; onBack: () => void }) {
+export function AdminScreen({ onBack }: { onBack: () => void }) {
+  const [data, setData] = useState<Overview | null>(null);
+  const [failed, setFailed] = useState(false);
+  const load = useCallback(() => {
+    setFailed(false);
+    void fetchOverview().then(result => {
+      if (result) setData(result);
+      else setFailed(true);
+    });
+  }, []);
+  useEffect(load, [load]);
+
+  if (!data) return <section className="admin-screen">
+    <button className="text-button" onClick={onBack}><ArrowLeft size={16} />Назад</button>
+    <div className="eyebrow">АДМИНКА · ДАШБОРД</div>
+    <h2 data-screen-heading tabIndex={-1}>Как идёт конкурс</h2>
+    {failed
+      ? <><p className="muted">Не получилось загрузить данные. Дашборд доступен только организаторам: если ты админ — закрой миниапп, открой заново через кнопку бота и нажми «Обновить».</p>
+        <button className="primary w-full" onClick={load}><RotateCcw size={18} />Обновить</button></>
+      : <p className="muted">Загружаем цифры…</p>}
+  </section>;
+
   const maxScore = Math.max(1, ...Object.values(data.by_result));
   const maxCourse = Math.max(1, ...COURSE_ORDER.map(key => data.by_course[key] ?? 0));
   const faculties = Object.keys(data.by_faculty).sort((a, b) => data.by_faculty[b] - data.by_faculty[a]);
@@ -89,6 +111,6 @@ export function AdminScreen({ data, onRefresh, onBack }: { data: Overview; onRef
     </div>
 
     <p className="muted dash-note">В рассылке: {data.eligible} · дублей по телефону: {data.dup_phones} · по студбилету: {data.dup_student_ids}</p>
-    <button className="primary w-full" onClick={onRefresh}><RotateCcw size={18} />Обновить</button>
+    <button className="primary w-full" onClick={load}><RotateCcw size={18} />Обновить</button>
   </section>;
 }

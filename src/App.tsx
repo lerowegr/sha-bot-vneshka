@@ -15,7 +15,7 @@ import { copy } from './data/copy';
 import { questions, shuffleQuestionAnswers, TOTAL_QUESTIONS, type Question } from './data/questions';
 import { calculateScore, toCanonical } from './logic/calculateResult';
 import { haptic, setupTelegram, telegram } from './lib/telegram';
-import { saveQuiz, fetchOverview, fetchStatus, type Overview, type Profile, type SaveStatus } from './lib/api';
+import { saveQuiz, fetchStatus, type Profile, type SaveStatus } from './lib/api';
 import { registerQuizTool } from './lib/webmcp';
 type Screen = 'start' | 'profile' | 'question' | 'analysis' | 'result' | 'ct' | 'admin' | 'locked';
 export default function App() {
@@ -26,7 +26,7 @@ export default function App() {
   const [shuffledQuestions, setShuffledQuestions] = useState(() => shuffleQuestionAnswers(questions));
   const [score, setScore] = useState(0);
   const [lockedScore, setLockedScore] = useState<number | null>(null);
-  const [overview, setOverview] = useState<Overview | null>(null);
+  const [inTelegram] = useState(() => !!telegram()?.initData);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const saving = useRef(false);
   const navigationLock = useRef(false);
@@ -36,7 +36,6 @@ export default function App() {
   const submissionRef = useRef<{ answers: number[]; times: number[] } | null>(null);
   const reducedMotion = useReducedMotion();
   useEffect(setupTelegram, []);
-  useEffect(() => { void fetchOverview().then(setOverview); }, []);
   useEffect(() => {
     void fetchStatus().then(status => {
       if (!status || !status.completed || status.is_admin) return;
@@ -45,7 +44,6 @@ export default function App() {
       setScreen('locked');
     });
   }, []);
-  const refreshAdmin = useCallback(() => { void fetchOverview().then(data => { if (data) setOverview(data); }); }, []);
   const start = useCallback(() => { answeredIndex.current = null; setAnswers([]); setProfile(null); timesRef.current = []; submissionRef.current = null; setShuffledQuestions(shuffleQuestionAnswers(questions)); setIndex(0); setSaveStatus('idle'); setScreen('profile'); }, []);
   const beginQuiz = useCallback((values: Profile) => { answeredIndex.current = null; setAnswers([]); setProfile(values); timesRef.current = []; submissionRef.current = null; setIndex(0); setSaveStatus('idle'); setScreen('question'); }, []);
   const back = useCallback(() => { if (navigationLock.current) return; navigationLock.current = true; answeredIndex.current = null; if (screen === 'admin') setScreen('start'); else if (screen === 'ct') setScreen('result'); if (screen === 'profile') setScreen('start'); if (screen === 'question') { if (index === 0) setScreen('profile'); else setIndex(value => value - 1); } }, [screen, index]);
@@ -78,13 +76,13 @@ export default function App() {
   const reveal = useCallback(() => setScreen('result'), []);
   const focusHeading = (definition: unknown) => { if (definition && typeof definition === 'object' && 'opacity' in definition && definition.opacity === 1) { navigationLock.current = false; document.querySelector<HTMLElement>('[data-screen-heading]')?.focus({ preventScroll: true }); } };
   return <MotionConfig reducedMotion="user"><div className="app-shell"><header className="header"><CommitteeBrand /><div className="header-right"><span className="edition">ШКОЛА АКТИВА 2026 <ArrowUpRight size={14} /></span></div></header><main><AnimatePresence mode="wait"><motion.div className="screen-container" key={`${screen}-${screen === 'question' ? index : ''}`} initial={{ opacity: 0, y: reducedMotion ? 0 : 18, rotateX: reducedMotion ? 0 : 3 }} animate={{ opacity: 1, y: 0, rotateX: 0 }} exit={{ opacity: 0, y: reducedMotion ? 0 : -12, rotateX: reducedMotion ? 0 : -2 }} transition={{ duration: .28, ease: [0.22, 1, 0.36, 1] }} onAnimationComplete={focusHeading}>
-    {screen === 'start' && <StartScreen onStart={start} onAdmin={overview ? () => setScreen('admin') : undefined} />}
+    {screen === 'start' && <StartScreen onStart={start} onAdmin={inTelegram ? () => setScreen('admin') : undefined} />}
     {screen === 'profile' && <ProfileScreen onSubmit={beginQuiz} onBack={back} />}
     {screen === 'question' && <QuestionScreen index={index} question={shuffledQuestions[index]} selected={answers[index]} onSelect={chooseAnswer} onBack={back} />}
     {screen === 'analysis' && <AnalysisScreen onComplete={reveal} />}
     {screen === 'result' && <ResultScreen score={score} onNext={() => setScreen('ct')} onRestart={start} saveStatus={saveStatus} onSave={() => { const sub = submissionRef.current; void persist(sub?.answers ?? [], sub?.times ?? [], profile); }} />}
     {screen === 'ct' && <CTScreen onBack={back} />}
-    {screen === 'admin' && overview && <AdminScreen data={overview} onRefresh={refreshAdmin} onBack={back} />}
+    {screen === 'admin' && <AdminScreen onBack={back} />}
     {screen === 'locked' && <LockedScreen score={lockedScore} onNext={() => setScreen('ct')} />}
   </motion.div></AnimatePresence></main><footer><span>{copy.footer}<Asterisk className="footer-dot" size={17} aria-hidden="true" /></span><span>Школа Актива 2026</span></footer></div></MotionConfig>;
 }
