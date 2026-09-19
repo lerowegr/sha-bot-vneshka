@@ -188,6 +188,9 @@ footer>span:first-child { display: flex; align-items: center; gap: 10px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition-duration: .01ms !important; }.it-word svg { stroke-dashoffset: 0; } }
 
 .admin-link { margin-top: 14px; color: var(--ink); font-weight: 700; }
+.admin-button { width: 100%; margin-top: 18px; background: var(--sha-purple); color: #fff; }
+.admin-button:hover { background: #cf5bff; }
+.admin-button .button-icon { border-left-color: rgba(255,255,255,.4); }
 .admin-screen h2 { font-family: var(--pixel); font-size: clamp(28px, 7vw, 40px); letter-spacing: 0; margin: 14px 0 18px; }
 .stat-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 8px; }
 .stat-card { background: var(--surface); border: 2px solid var(--ink); border-radius: 14px; padding: 14px 8px; text-align: center; box-shadow: 3px 3px 0 var(--ink); display: flex; flex-direction: column; gap: 4px; }

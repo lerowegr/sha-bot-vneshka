@@ -15,7 +15,7 @@ import { copy } from './data/copy';
 import { questions, shuffleQuestionAnswers, TOTAL_QUESTIONS, type Question } from './data/questions';
 import { calculateScore, toCanonical } from './logic/calculateResult';
 import { haptic, setupTelegram, telegram } from './lib/telegram';
-import { saveQuiz, fetchStatus, type Profile, type SaveStatus } from './lib/api';
+import { saveQuiz, fetchOverview, fetchStatus, type Profile, type SaveStatus } from './lib/api';
 import { registerQuizTool } from './lib/webmcp';
 type Screen = 'start' | 'profile' | 'question' | 'analysis' | 'result' | 'ct' | 'admin' | 'locked';
 export default function App() {
@@ -26,7 +26,7 @@ export default function App() {
   const [shuffledQuestions, setShuffledQuestions] = useState(() => shuffleQuestionAnswers(questions));
   const [score, setScore] = useState(0);
   const [lockedScore, setLockedScore] = useState<number | null>(null);
-  const [inTelegram] = useState(() => !!telegram()?.initData);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const saving = useRef(false);
   const navigationLock = useRef(false);
@@ -36,6 +36,20 @@ export default function App() {
   const submissionRef = useRef<{ answers: number[]; times: number[] } | null>(null);
   const reducedMotion = useReducedMotion();
   useEffect(setupTelegram, []);
+  useEffect(() => {
+    if (screen !== 'start') return;
+    let cancelled = false;
+    let attempts = 0;
+    const check = () => {
+      void fetchOverview().then(data => {
+        if (cancelled) return;
+        if (data) setIsAdmin(true);
+        else if (++attempts < 3) window.setTimeout(check, 1500);
+      });
+    };
+    check();
+    return () => { cancelled = true; };
+  }, [screen]);
   useEffect(() => {
     void fetchStatus().then(status => {
       if (!status || !status.completed || status.is_admin) return;
@@ -76,7 +90,7 @@ export default function App() {
   const reveal = useCallback(() => setScreen('result'), []);
   const focusHeading = (definition: unknown) => { if (definition && typeof definition === 'object' && 'opacity' in definition && definition.opacity === 1) { navigationLock.current = false; document.querySelector<HTMLElement>('[data-screen-heading]')?.focus({ preventScroll: true }); } };
   return <MotionConfig reducedMotion="user"><div className="app-shell"><header className="header"><CommitteeBrand /><div className="header-right"><span className="edition">ШКОЛА АКТИВА 2026 <ArrowUpRight size={14} /></span></div></header><main><AnimatePresence mode="wait"><motion.div className="screen-container" key={`${screen}-${screen === 'question' ? index : ''}`} initial={{ opacity: 0, y: reducedMotion ? 0 : 18, rotateX: reducedMotion ? 0 : 3 }} animate={{ opacity: 1, y: 0, rotateX: 0 }} exit={{ opacity: 0, y: reducedMotion ? 0 : -12, rotateX: reducedMotion ? 0 : -2 }} transition={{ duration: .28, ease: [0.22, 1, 0.36, 1] }} onAnimationComplete={focusHeading}>
-    {screen === 'start' && <StartScreen onStart={start} onAdmin={inTelegram ? () => setScreen('admin') : undefined} />}
+    {screen === 'start' && <StartScreen onStart={start} onAdmin={isAdmin ? () => setScreen('admin') : undefined} />}
     {screen === 'profile' && <ProfileScreen onSubmit={beginQuiz} onBack={back} />}
     {screen === 'question' && <QuestionScreen index={index} question={shuffledQuestions[index]} selected={answers[index]} onSelect={chooseAnswer} onBack={back} />}
     {screen === 'analysis' && <AnalysisScreen onComplete={reveal} />}
