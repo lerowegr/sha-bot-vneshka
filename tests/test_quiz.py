@@ -306,6 +306,74 @@ async def test_raffle_endpoint_auth_and_validation(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_allowlist_parse_filter_and_draw(tmp_path):
+    from database.quiz import QuizDatabase
+    db = QuizDatabase(tmp_path / "quiz.sqlite3")
+    await db.initialize()
+    entries, rejected = QuizDatabase.parse_allowlist("@Ivan_Petrov, tester\n123456789  @ivan_petrov\n@@, ab, x")
+    assert entries == [("ivan_petrov", "username"), ("tester", "username"), ("123456789", "user_id")]
+    assert rejected == ["@@", "ab", "x"]
+    assert QuizDatabase.parse_allowlist(None) == ([], [])
+    assert QuizDatabase.parse_allowlist("") == ([], [])
+
+    good = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0]
+    times = [1000] * 10
+    await db.complete(1, "ivan_petrov", good, times, prof(1))
+    await db.complete(2, "stranger", good, times, prof(2))
+    await db.complete(3, None, good, times, prof(3))
+    added, rejected = await db.set_allowlist(10, "@ivan_petrov, 3, nope!")
+    assert added == 2 and rejected == ["nope!"]
+    current = await db.get_allowlist()
+    assert {(e["value"], e["kind"]) for e in current} == {("ivan_petrov", "username"), ("3", "user_id")}
+    eligible = await db.eligible_participants(True)
+    assert {row["telegram_user_id"] for row in eligible} == {1, 3}
+    assert len(await db.eligible_participants(False)) == 3
+    draw_id, winners = await db.draw_winners(10, 2, True)
+    assert draw_id == 1 and {w["telegram_user_id"] for w in winners} == {1, 3}
+    with pytest.raises(ValueError):
+        await db.draw_winners(10, 3, True)
+    await db.set_allowlist(10, "")
+    assert await db.get_allowlist() == []
+    with pytest.raises(ValueError):
+        await db.eligible_participants(True)
+
+
+@pytest.mark.asyncio
+async def test_allowlist_endpoint_and_filtered_draw(tmp_path):
+    db_path = tmp_path / "quiz.sqlite3"
+    db = QuizDatabase(db_path)
+    await db.initialize()
+    good = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0]
+    await db.complete(1, "ivan_petrov", good, [1000] * 10, prof(1))
+    await db.complete(2, "stranger_x", good, [1000] * 10, prof(2))
+    app = create_app(bot_token=TOKEN, database_path=db_path, admin_ids=frozenset({123456}))
+    async with TestClient(TestServer(app)) as client:
+        me = signed()
+        stranger = signed(user={"id": 999, "username": "x"})
+        assert (await client.post("/api/admin/allowlist", json={"initData": "bad", "entries": "one"})).status == 401
+        assert (await client.post("/api/admin/allowlist", json={"initData": stranger, "entries": "one"})).status == 403
+        assert (await client.post("/api/admin/allowlist", json={"initData": me})).status == 400
+        response = await client.post("/api/admin/allowlist", json={"initData": me, "entries": 123})
+        assert response.status == 400
+        response = await client.post("/api/admin/allowlist", json={"initData": me, "entries": "@Ivan_Petrov, 2, nope!"})
+        assert response.status == 200
+        body = await response.json()
+        assert body == {"ok": True, "added": 2, "rejected": ["nope!"], "total": 2, "eligible": 2}
+        response = await client.post("/api/admin/raffle", json={"initData": me, "count": 3, "only_allowlisted": True})
+        assert response.status == 400
+        response = await client.post("/api/admin/raffle", json={"initData": me, "count": 1, "only_allowlisted": True})
+        assert response.status == 200
+        body = await response.json()
+        assert body["filtered"] is True and body["winners"][0]["telegram_user_id"] in (1, 2)
+        response = await client.post("/api/admin/raffle", json={"initData": me, "count": 1, "only_allowlisted": "yes"})
+        assert response.status == 400
+        from urllib.parse import quote
+        overview = await (await client.get("/api/admin/overview?initData=" + quote(me, safe=""))).json()
+        assert len(overview["allowlist"]) == 2
+        assert overview["raffles"][0]["filtered"] is True
+
+
+@pytest.mark.asyncio
 async def test_static_files_and_private_file_protection(tmp_path):
     static = tmp_path / 'dist'
     static.mkdir()

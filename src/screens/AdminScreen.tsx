@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Dices, RotateCcw, Trophy } from 'lucide-react';
-import { fetchOverview, runRaffle, type Overview, type Winner } from '../lib/api';
+import { fetchOverview, runRaffle, saveAllowlist, type AllowlistOutcome, type Overview, type Winner } from '../lib/api';
 
 const COLORS = ['#2CE719', '#BF2AFF', '#FF8512', '#1C63FF', '#FFCC00', '#F70302'];
 const COURSE_ORDER = ['b1', 'b2', 'b3', 'b4', 'm1', 'm2'];
@@ -26,6 +26,10 @@ export function AdminScreen({ onBack }: { onBack: () => void }) {
   const [winners, setWinners] = useState<Winner[] | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [drawFailed, setDrawFailed] = useState(false);
+  const [onlyListed, setOnlyListed] = useState(false);
+  const [allowText, setAllowText] = useState('');
+  const [allowInfo, setAllowInfo] = useState<AllowlistOutcome | null>(null);
+  const [savingAllow, setSavingAllow] = useState(false);
   const load = useCallback(() => {
     setFailed(false);
     void fetchOverview().then(result => {
@@ -37,14 +41,25 @@ export function AdminScreen({ onBack }: { onBack: () => void }) {
   const draw = useCallback(() => {
     setDrawing(true);
     setDrawFailed(false);
-    void runRaffle(count).then(outcome => {
+    void runRaffle(count, onlyListed).then(outcome => {
       setDrawing(false);
       if (outcome) {
         setWinners(outcome.winners);
         load();
       } else setDrawFailed(true);
     });
-  }, [count, load]);
+  }, [count, onlyListed, load]);
+  const saveList = useCallback(() => {
+    setSavingAllow(true);
+    void saveAllowlist(allowText).then(outcome => {
+      setSavingAllow(false);
+      if (outcome) {
+        setAllowInfo(outcome);
+        setAllowText('');
+        load();
+      } else setAllowInfo({ added: 0, rejected: [], total: -1, eligible: 0 });
+    });
+  }, [allowText, load]);
 
   if (!data) return <section className="admin-screen">
     <button className="text-button" onClick={onBack}><ArrowLeft size={16} />Назад</button>
@@ -127,7 +142,10 @@ export function AdminScreen({ onBack }: { onBack: () => void }) {
 
     <div className="dash-block">
       <div className="eyebrow">РОЗЫГРЫШ</div>
-      <p className="muted">Случайный выбор среди всех участников (крипторандом, без повторов внутри тиража). Каждый тираж записывается в историю ниже.</p>
+      <p className="muted">Случайный выбор среди участников (крипторандом, без повторов внутри тиража). Каждый тираж записывается в историю ниже.</p>
+      <button type="button" className={`toggle-row ${onlyListed ? 'active' : ''}`} onClick={() => setOnlyListed(value => !value)} aria-pressed={onlyListed}>
+        <span className="toggle" />Только комментаторы {data.allowlist.length > 0 ? `(в списке: ${data.allowlist.length})` : '(список пуст)'}
+      </button>
       <div className="raffle-controls">
         {[1, 2, 3, 5].map(n => <button key={n} type="button" className={`raffle-count ${n === count ? 'active' : ''}`} onClick={() => setCount(n)}>{n}</button>)}
         <button type="button" className="primary raffle-go" disabled={drawing || !data.total} onClick={draw}><Dices size={18} />{drawing ? 'Крутим…' : 'Выбрать'}</button>
@@ -143,8 +161,20 @@ export function AdminScreen({ onBack }: { onBack: () => void }) {
       </div>}
       {data.raffles.length > 0 && <div className="raffle-history">
         <div className="eyebrow">ИСТОРИЯ ТИРАЖЕЙ</div>
-        {data.raffles.map(draw => <p key={draw.id} className="muted">#{draw.id} · {draw.winners.map(w => [w.last_name, w.first_name].filter(Boolean).join(' ') || w.telegram_user_id).join(', ')}</p>)}
+        {data.raffles.map(draw => <p key={draw.id} className="muted">#{draw.id}{draw.filtered ? ' · по списку' : ''} · {draw.winners.map(w => [w.last_name, w.first_name].filter(Boolean).join(' ') || w.telegram_user_id).join(', ')}</p>)}
       </div>}
+    </div>
+
+    <div className="dash-block">
+      <div className="eyebrow">СПИСОК КОММЕНТАТОРОВ</div>
+      <p className="muted">Вставь ники (с @ или без) или Telegram ID из комментариев под постом — через запятую, пробелы или с новой строки. Список заменяется целиком. Совпадение по нику нечувствительно к регистру.</p>
+      <label className="form-field"><span>Ники и ID</span>
+        <textarea value={allowText} onChange={event => setAllowText(event.target.value)} rows={3} placeholder="@nick1, @nick2, 123456789" />
+      </label>
+      <button type="button" className="primary w-full form-submit" disabled={savingAllow} onClick={saveList}>{savingAllow ? 'Сохраняем…' : 'Сохранить список'}</button>
+      {allowInfo && (allowInfo.total < 0
+        ? <p className="form-error" role="alert">Не сохранилось. Обнови дашборд и попробуй снова.</p>
+        : <p className="muted">Добавлено: {allowInfo.added} · всего в списке: {allowInfo.total} · из них прошли тест: {allowInfo.eligible}{allowInfo.rejected.length > 0 ? ` · не распознано: ${allowInfo.rejected.join(', ')}` : ''}</p>)}
     </div>
 
     <p className="muted dash-note">В рассылке: {data.eligible} · дублей по телефону: {data.dup_phones} · по студбилету: {data.dup_student_ids}</p>

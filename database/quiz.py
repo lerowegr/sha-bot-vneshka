@@ -173,6 +173,18 @@ class QuizDatabase:
                     created_at DATETIME NOT NULL
                 )
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS raffle_allowlist (
+                    value TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    added_by INTEGER NOT NULL,
+                    created_at DATETIME NOT NULL
+                )
+            """)
+            async with db.execute("PRAGMA table_info(raffles)") as cursor:
+                raffle_columns = {row[1] for row in await cursor.fetchall()}
+            if "filtered" not in raffle_columns:
+                await db.execute("ALTER TABLE raffles ADD COLUMN filtered INTEGER NOT NULL DEFAULT 0")
             # Migrate legacy CT base (backend/frontend/...) to new score_* schema.
             async with db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='quiz_users'") as cursor:
                 row = await cursor.fetchone()
@@ -401,14 +413,14 @@ class QuizDatabase:
                         matrix[faculty][course] += count
         return matrix
 
-    async def draw_winners(self, admin_id: int, count: int) -> tuple[int, list[dict]]:
+    async def draw_winners(self, admin_id: int, count: int, only_allowlisted: bool = False) -> tuple[int, list[dict]]:
         """Pick `count` random participants (crypto-secure) and journal the draw.
 
         Returns (draw_id, winners). Raises ValueError on bad count or empty pool.
         """
         if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= 20:
             raise ValueError("count must be an integer 1..20")
-        pool = await self.participants()
+        pool = await self.eligible_participants(bool(only_allowlisted))
         if not pool:
             raise ValueError("no participants yet")
         if count > len(pool):
@@ -425,9 +437,10 @@ class QuizDatabase:
         } for row in winners]
         async with aiosqlite.connect(self.path, timeout=10) as db:
             async with db.execute("""
-                INSERT INTO raffles (admin_id, asked_count, winners_json, created_at)
-                VALUES (?, ?, ?, ?)
-            """, (admin_id, count, json.dumps(snapshot, ensure_ascii=False),
+                INSERT INTO raffles (admin_id, asked_count, filtered, winners_json, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (admin_id, count, 1 if only_allowlisted else 0,
+                  json.dumps(snapshot, ensure_ascii=False),
                   datetime.now(timezone.utc).isoformat())) as cursor:
                 draw_id = cursor.lastrowid
             await db.commit()
@@ -438,7 +451,7 @@ class QuizDatabase:
         async with aiosqlite.connect(self.path, timeout=10) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("""
-                SELECT id, admin_id, asked_count, winners_json, created_at
+                SELECT id, admin_id, asked_count, filtered, winners_json, created_at
                 FROM raffles ORDER BY id DESC LIMIT ?
             """, (limit,)) as cursor:
                 draws = []
@@ -446,7 +459,72 @@ class QuizDatabase:
                     draws.append({
                         "id": row["id"], "admin_id": row["admin_id"],
                         "asked_count": row["asked_count"],
+                        "filtered": bool(row["filtered"]),
                         "winners": json.loads(row["winners_json"]),
                         "created_at": row["created_at"],
                     })
         return draws
+
+    @staticmethod
+    def parse_allowlist(raw: object) -> tuple[list[tuple[str, str]], list[str]]:
+        """Split pasted text into (value, kind) entries plus rejected tokens.
+
+        Usernames lose @ and lowercase; pure digits become user_id.
+        """
+        if not isinstance(raw, str):
+            return [], []
+        tokens = re.split(r"[\s,;]+", raw.strip())
+        entries: list[tuple[str, str]] = []
+        rejected: list[str] = []
+        seen: set[str] = set()
+        for token in tokens:
+            if not token:
+                continue
+            if token.isdigit():
+                key = ("user_id", token)
+            else:
+                name = token.lstrip("@").lower()
+                if not re.fullmatch(r"[a-z0-9_]{5,32}", name):
+                    rejected.append(token)
+                    continue
+                key = ("username", name)
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append((key[1], key[0]))
+        return entries, rejected
+
+    async def set_allowlist(self, admin_id: int, raw: object) -> tuple[int, list[str]]:
+        """Replace the allowlist with freshly parsed entries. Returns (added, rejected)."""
+        entries, rejected = self.parse_allowlist(raw)
+        now = datetime.now(timezone.utc).isoformat()
+        async with aiosqlite.connect(self.path, timeout=10) as db:
+            await db.execute("DELETE FROM raffle_allowlist")
+            await db.executemany("""
+                INSERT INTO raffle_allowlist (value, kind, added_by, created_at)
+                VALUES (?, ?, ?, ?)
+            """, [(value, kind, admin_id, now) for value, kind in entries])
+            await db.commit()
+        return len(entries), rejected
+
+    async def get_allowlist(self) -> list[dict]:
+        async with aiosqlite.connect(self.path, timeout=10) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("""
+                SELECT value, kind, added_by, created_at FROM raffle_allowlist ORDER BY value
+            """) as cursor:
+                return [dict(row) for row in await cursor.fetchall()]
+
+    async def eligible_participants(self, only_allowlisted: bool) -> list[dict]:
+        """All participants, optionally narrowed to the allowlist (by id or username)."""
+        pool = await self.participants()
+        if not only_allowlisted:
+            return pool
+        allowed = await self.get_allowlist()
+        if not allowed:
+            raise ValueError("allowlist is empty")
+        ids = {entry["value"] for entry in allowed if entry["kind"] == "user_id"}
+        names = {entry["value"] for entry in allowed if entry["kind"] == "username"}
+        return [row for row in pool
+                if str(row["telegram_user_id"]) in ids
+                or (row.get("telegram_username") or "").lower() in names]

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchOverview, fetchStatus, runRaffle, saveQuiz, type Profile } from './api';
+import { fetchOverview, fetchStatus, runRaffle, saveAllowlist, saveQuiz, type Profile } from './api';
 const PROFILE: Profile = { last_name: 'Иванова', first_name: 'Анна', middle_name: 'Сергеевна', course: 'b2', faculty: 'СНиМК', student_id: '123456', phone: '+79161234567' };
 const ANSWERS = [2, 0, 0, 1, 2, 0, 2, 0, 2, 0];
 const TIMES = [1200, 900, 1500, 800, 1100, 950, 1300, 700, 1000, 600];
@@ -80,13 +80,32 @@ describe('raffle', () => {
   it('posts the draw and returns winners', async () => {
     vi.stubGlobal('window', { Telegram: { WebApp: { initData: 'signed' } } });
     const winners = [{ telegram_user_id: 1 }];
-    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, draw_id: 3, winners }) }); vi.stubGlobal('fetch', fetch);
-    expect(await runRaffle(2)).toEqual({ draw_id: 3, winners });
-    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ initData: 'signed', count: 2 });
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, draw_id: 3, winners, filtered: true }) }); vi.stubGlobal('fetch', fetch);
+    expect(await runRaffle(2, true)).toEqual({ draw_id: 3, winners, filtered: true });
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ initData: 'signed', count: 2, only_allowlisted: true });
   });
   it('returns null when denied', async () => {
     vi.stubGlobal('window', { Telegram: { WebApp: { initData: 'signed' } } });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
     expect(await runRaffle(1)).toBeNull();
+  });
+});
+describe('allowlist', () => {
+  it('returns null outside Telegram', async () => {
+    vi.stubGlobal('window', {});
+    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
+    expect(await saveAllowlist('@a, @b')).toBeNull(); expect(fetch).not.toHaveBeenCalled();
+  });
+  it('posts pasted entries and returns counts', async () => {
+    vi.stubGlobal('window', { Telegram: { WebApp: { initData: 'signed' } } });
+    const payload = { ok: true, added: 2, rejected: ['x'], total: 2, eligible: 1 };
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => payload }); vi.stubGlobal('fetch', fetch);
+    expect(await saveAllowlist('@a, @b')).toEqual({ added: 2, rejected: ['x'], total: 2, eligible: 1 });
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ initData: 'signed', entries: '@a, @b' });
+  });
+  it('returns null on failure', async () => {
+    vi.stubGlobal('window', { Telegram: { WebApp: { initData: 'signed' } } });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400 }));
+    expect(await saveAllowlist('@a')).toBeNull();
   });
 });
