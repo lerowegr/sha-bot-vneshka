@@ -56,7 +56,7 @@ function winnerLine(winner: Winner): React.ReactNode {
   const fio = [winner.last_name, winner.first_name, winner.middle_name].filter(Boolean).join(' ') || 'Победитель';
   const contact = winner.telegram_username ? `username @${winner.telegram_username}` : winner.phone;
   return <>
-    Поздравляем, <strong>{fio}</strong>{winner.faculty ? <> с факультета «{winner.faculty}»</> : null} выиграла!
+    Поздравляем, <strong>{fio}</strong>{winner.faculty ? <> с факультета «{winner.faculty}»</> : null} выиграл/а!
     <br />Для связи используйте {contact ? <strong>{contact}</strong> : 'контакты из анкеты'}.
   </>;
 }
