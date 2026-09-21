@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Dices, RotateCcw, Trophy } from 'lucide-react';
 import { fetchOverview, runRaffle, saveAllowlist, type AllowlistOutcome, type Overview, type Winner } from '../lib/api';
+import { CongratsOverlay } from '../components/CongratsOverlay';
 
 const COLORS = ['#2CE719', '#BF2AFF', '#FF8512', '#1C63FF', '#FFCC00', '#F70302'];
 const COURSE_ORDER = ['b1', 'b2', 'b3', 'b4', 'm1', 'm2'];
@@ -24,6 +25,7 @@ export function AdminScreen({ onBack }: { onBack: () => void }) {
   const [failed, setFailed] = useState(false);
   const [count, setCount] = useState(1);
   const [winners, setWinners] = useState<Winner[] | null>(null);
+  const [showCongrats, setShowCongrats] = useState(false);
   const [drawing, setDrawing] = useState(false);
   const [drawFailed, setDrawFailed] = useState(false);
   const [onlyListed, setOnlyListed] = useState(false);
@@ -45,6 +47,7 @@ export function AdminScreen({ onBack }: { onBack: () => void }) {
       setDrawing(false);
       if (outcome) {
         setWinners(outcome.winners);
+        setShowCongrats(outcome.winners.length > 0);
         load();
       } else setDrawFailed(true);
     });
@@ -175,5 +178,6 @@ export function AdminScreen({ onBack }: { onBack: () => void }) {
 
     <p className="muted dash-note">В рассылке: {data.eligible} · дублей по телефону: {data.dup_phones} · по студбилету: {data.dup_student_ids}</p>
     <button className="primary w-full" onClick={load}><RotateCcw size={18} />Обновить</button>
+    {showCongrats && winners && winners.length > 0 && <CongratsOverlay winners={winners} onClose={() => setShowCongrats(false)} />}
   </section>;
 }
