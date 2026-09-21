@@ -165,15 +165,6 @@ class QuizDatabase:
                 )
             """)
             await db.execute("""
-                CREATE TABLE IF NOT EXISTS raffles (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    admin_id INTEGER NOT NULL,
-                    asked_count INTEGER NOT NULL,
-                    winners_json TEXT NOT NULL,
-                    created_at DATETIME NOT NULL
-                )
-            """)
-            await db.execute("""
                 CREATE TABLE IF NOT EXISTS raffle_allowlist (
                     value TEXT PRIMARY KEY,
                     kind TEXT NOT NULL,
@@ -181,10 +172,6 @@ class QuizDatabase:
                     created_at DATETIME NOT NULL
                 )
             """)
-            async with db.execute("PRAGMA table_info(raffles)") as cursor:
-                raffle_columns = {row[1] for row in await cursor.fetchall()}
-            if "filtered" not in raffle_columns:
-                await db.execute("ALTER TABLE raffles ADD COLUMN filtered INTEGER NOT NULL DEFAULT 0")
             # Migrate legacy CT base (backend/frontend/...) to new score_* schema.
             async with db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='quiz_users'") as cursor:
                 row = await cursor.fetchone()
@@ -413,10 +400,10 @@ class QuizDatabase:
                         matrix[faculty][course] += count
         return matrix
 
-    async def draw_winners(self, admin_id: int, count: int, only_allowlisted: bool = False) -> tuple[int, list[dict]]:
-        """Pick `count` random participants (crypto-secure) and journal the draw.
+    async def draw_winners(self, admin_id: int, count: int, only_allowlisted: bool = False) -> list[dict]:
+        """Pick `count` random participants (crypto-secure). Nothing is stored.
 
-        Returns (draw_id, winners). Raises ValueError on bad count or empty pool.
+        Raises ValueError on bad count or empty pool.
         """
         if not isinstance(count, int) or isinstance(count, bool) or not 1 <= count <= 20:
             raise ValueError("count must be an integer 1..20")
@@ -427,7 +414,7 @@ class QuizDatabase:
             raise ValueError("count exceeds participants")
         rng = secrets.SystemRandom()
         winners = rng.sample(pool, count)
-        snapshot = [{
+        return [{
             "telegram_user_id": row["telegram_user_id"],
             "telegram_username": row.get("telegram_username"),
             "last_name": row.get("last_name"), "first_name": row.get("first_name"),
@@ -435,35 +422,6 @@ class QuizDatabase:
             "faculty": row.get("faculty"), "student_id": row.get("student_id"),
             "phone": row.get("phone"), "result": row.get("result"),
         } for row in winners]
-        async with aiosqlite.connect(self.path, timeout=10) as db:
-            async with db.execute("""
-                INSERT INTO raffles (admin_id, asked_count, filtered, winners_json, created_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (admin_id, count, 1 if only_allowlisted else 0,
-                  json.dumps(snapshot, ensure_ascii=False),
-                  datetime.now(timezone.utc).isoformat())) as cursor:
-                draw_id = cursor.lastrowid
-            await db.commit()
-        return draw_id, snapshot
-
-    async def recent_raffles(self, limit: int = 10) -> list[dict]:
-        """Latest draws, newest first."""
-        async with aiosqlite.connect(self.path, timeout=10) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("""
-                SELECT id, admin_id, asked_count, filtered, winners_json, created_at
-                FROM raffles ORDER BY id DESC LIMIT ?
-            """, (limit,)) as cursor:
-                draws = []
-                async for row in cursor:
-                    draws.append({
-                        "id": row["id"], "admin_id": row["admin_id"],
-                        "asked_count": row["asked_count"],
-                        "filtered": bool(row["filtered"]),
-                        "winners": json.loads(row["winners_json"]),
-                        "created_at": row["created_at"],
-                    })
-        return draws
 
     @staticmethod
     def parse_allowlist(raw: object) -> tuple[list[tuple[str, str]], list[str]]:

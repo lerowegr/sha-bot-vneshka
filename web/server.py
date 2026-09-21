@@ -39,7 +39,6 @@ def create_app(*, bot_token: str, database_path: str | Path,
         try:
             summary = await db.summary()
             matrix = await db.faculty_course_matrix()
-            raffles = await db.recent_raffles()
             allowlist = await db.get_allowlist()
         except aiosqlite.Error:
             logger.error("Admin overview read failed")
@@ -54,7 +53,7 @@ def create_app(*, bot_token: str, database_path: str | Path,
             "matrix": matrix, "questions": summary["questions"],
             "avg_total_ms": summary["avg_total_ms"], "timed_count": summary["timed_count"],
             "eligible": summary["eligible"], "dup_phones": summary["dup_phones"],
-            "dup_student_ids": summary["dup_student_ids"], "raffles": raffles,
+            "dup_student_ids": summary["dup_student_ids"],
             "allowlist": allowlist,
         }, headers={"Cache-Control": "no-store"})
 
@@ -111,7 +110,7 @@ def create_app(*, bot_token: str, database_path: str | Path,
                                  headers={"Cache-Control": "no-store"})
 
     async def raffle(request: web.Request) -> web.Response:
-        """Draw `count` random winners. Admin-only, every draw is journaled."""
+        """Draw `count` random winners. Admin-only, nothing is stored."""
         if request.content_type != "application/json":
             return web.json_response({"error": "json_required"}, status=415)
         try:
@@ -132,14 +131,14 @@ def create_app(*, bot_token: str, database_path: str | Path,
         if user.id not in admin_ids:
             return web.json_response({"error": "forbidden"}, status=403)
         try:
-            draw_id, winners = await db.draw_winners(user.id, payload["count"], only_allowlisted)
+            winners = await db.draw_winners(user.id, payload["count"], only_allowlisted)
         except ValueError as exc:
             code = "allowlist_empty" if "allowlist" in str(exc) else "invalid_count"
             return web.json_response({"error": code}, status=400)
         except aiosqlite.Error:
             logger.error("Raffle draw failed")
             return web.json_response({"error": "storage_unavailable"}, status=503)
-        return web.json_response({"ok": True, "draw_id": draw_id, "winners": winners,
+        return web.json_response({"ok": True, "winners": winners,
                                   "filtered": only_allowlisted},
                                  headers={"Cache-Control": "no-store"})
 

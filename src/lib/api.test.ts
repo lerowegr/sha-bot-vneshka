@@ -80,8 +80,8 @@ describe('raffle', () => {
   it('posts the draw and returns winners', async () => {
     vi.stubGlobal('window', { Telegram: { WebApp: { initData: 'signed' } } });
     const winners = [{ telegram_user_id: 1 }];
-    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, draw_id: 3, winners, filtered: true }) }); vi.stubGlobal('fetch', fetch);
-    expect(await runRaffle(2, true)).toEqual({ draw_id: 3, winners, filtered: true });
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, winners, filtered: true }) }); vi.stubGlobal('fetch', fetch);
+    expect(await runRaffle(2, true)).toEqual({ winners, filtered: true });
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ initData: 'signed', count: 2, only_allowlisted: true });
   });
   it('returns null when denied', async () => {

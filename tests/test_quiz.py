@@ -266,13 +266,10 @@ async def test_raffle_draw_and_history(tmp_path):
         await db.draw_winners(10, 0)
     with pytest.raises(ValueError):
         await db.draw_winners(10, 99)
-    draw_id, winners = await db.draw_winners(10, 2)
-    assert draw_id == 1 and len(winners) == 2
+    winners = await db.draw_winners(10, 2)
+    assert len(winners) == 2
     assert len({w["telegram_user_id"] for w in winners}) == 2
     assert all(w["phone"].startswith("+79") for w in winners)
-    history = await db.recent_raffles()
-    assert len(history) == 1 and history[0]["admin_id"] == 10
-    assert {w["telegram_user_id"] for w in history[0]["winners"]} == {w["telegram_user_id"] for w in winners}
 
 
 @pytest.mark.asyncio
@@ -298,11 +295,12 @@ async def test_raffle_endpoint_auth_and_validation(tmp_path):
         response = await client.post("/api/admin/raffle", json={"initData": me, "count": 1})
         assert response.status == 200
         body = await response.json()
-        assert body["ok"] is True and body["draw_id"] == 1 and len(body["winners"]) == 1
+        assert body["ok"] is True and len(body["winners"]) == 1
         assert body["winners"][0]["telegram_user_id"] == 1
+        assert "draw_id" not in body
         from urllib.parse import quote
         overview = await (await client.get("/api/admin/overview?initData=" + quote(me, safe=""))).json()
-        assert len(overview["raffles"]) == 1 and overview["raffles"][0]["id"] == 1
+        assert "raffles" not in overview
 
 
 @pytest.mark.asyncio
@@ -328,8 +326,8 @@ async def test_allowlist_parse_filter_and_draw(tmp_path):
     eligible = await db.eligible_participants(True)
     assert {row["telegram_user_id"] for row in eligible} == {1, 3}
     assert len(await db.eligible_participants(False)) == 3
-    draw_id, winners = await db.draw_winners(10, 2, True)
-    assert draw_id == 1 and {w["telegram_user_id"] for w in winners} == {1, 3}
+    winners = await db.draw_winners(10, 2, True)
+    assert {w["telegram_user_id"] for w in winners} == {1, 3}
     with pytest.raises(ValueError):
         await db.draw_winners(10, 3, True)
     await db.set_allowlist(10, "")
@@ -370,7 +368,7 @@ async def test_allowlist_endpoint_and_filtered_draw(tmp_path):
         from urllib.parse import quote
         overview = await (await client.get("/api/admin/overview?initData=" + quote(me, safe=""))).json()
         assert len(overview["allowlist"]) == 2
-        assert overview["raffles"][0]["filtered"] is True
+        assert "raffles" not in overview
 
 
 @pytest.mark.asyncio

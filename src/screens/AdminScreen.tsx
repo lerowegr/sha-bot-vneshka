@@ -142,7 +142,7 @@ export function AdminScreen({ onBack }: { onBack: () => void }) {
 
     <div className="dash-block">
       <div className="eyebrow">РОЗЫГРЫШ</div>
-      <p className="muted">Случайный выбор среди участников (крипторандом, без повторов внутри тиража). Каждый тираж записывается в историю ниже.</p>
+      <p className="muted">Случайный выбор среди участников (крипторандом, без повторов внутри тиража).</p>
       <button type="button" className={`toggle-row ${onlyListed ? 'active' : ''}`} onClick={() => setOnlyListed(value => !value)} aria-pressed={onlyListed}>
         <span className="toggle" />Только комментаторы {data.allowlist.length > 0 ? `(в списке: ${data.allowlist.length})` : '(список пуст)'}
       </button>
@@ -158,10 +158,6 @@ export function AdminScreen({ onBack }: { onBack: () => void }) {
           <span>{[winner.faculty, winner.student_id].filter(Boolean).join(' · ')}{winner.result ? ` · ${winner.result.split('_')[1]}/10` : ''}</span>
           <span className="winner-phone">{winner.phone ?? ''}</span></div>
         </div>)}
-      </div>}
-      {data.raffles.length > 0 && <div className="raffle-history">
-        <div className="eyebrow">ИСТОРИЯ ТИРАЖЕЙ</div>
-        {data.raffles.map(draw => <p key={draw.id} className="muted">#{draw.id}{draw.filtered ? ' · по списку' : ''} · {draw.winners.map(w => [w.last_name, w.first_name].filter(Boolean).join(' ') || w.telegram_user_id).join(', ')}</p>)}
       </div>}
     </div>
 
