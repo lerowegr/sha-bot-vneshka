@@ -20,11 +20,11 @@ export function StartScreen({ onStart, onAdmin }: { onStart: () => void; onAdmin
         <Mascot />
       </div>
     </div>
-    <div className="quiz-strip"><span><Sparkles size={19} />10 вопросов</span><span className="strip-dash" /><span>Конкурс: Premium на 3 месяца</span><span className="strip-dash" /><span>Отправь результат в комментарии<ArrowUpRight size={18} /></span></div>
+    <div className="quiz-strip"><span><Sparkles size={19} />10 вопросов</span><span className="strip-dash" /><span>Проверь, как знаешь ША</span><span className="strip-dash" /><span>Результат сразу<ArrowUpRight size={18} /></span></div>
     <motion.div className="start-cta-block" initial={{ opacity: 0, y: 24, rotateX: 8 }} whileInView={{ opacity: 1, y: 0, rotateX: 0 }} viewport={{ once: true, amount: .45 }} transition={{ duration: .45 }}>
-      <span className="section-number">КАК УЧАСТВОВАТЬ</span>
-      <h2>Пройди тест<br />и забери шанс на победу</h2>
-      <p className="cta-description">1. Подпишись на ША ВК и ТГ.<br />2. Пройди задание в боте ША.<br />3. Отправь результат (скрин с баллами) в комментарии.<br /><br />Победителя выберем завтра рандомайзером. Подходи сегодня на ФЕСТАРТе на точку Школы Актива за другими интерактивами!</p>
+      <span className="section-number">ТВОЙ ХОД</span>
+      <h2>Проверь себя<br />за 2 минуты</h2>
+      <p className="cta-description">1. Подпишись на ША ВК и ТГ.<br />2. Пройди тест из 10 вопросов.<br />3. Жди анкету на Участника Школы Актива.</p>
       <motion.button className="primary start-button" whileTap={{ scale: .96, rotateX: 5 }} onClick={onStart}>{copy.start.button}<span className="button-icon"><ArrowUpRight size={25} /></span></motion.button>
       <div className="start-meta cta-meta"><span><Clock3 size={16} />{copy.start.time}</span><span className="meta-dot" /><span>Результат сразу</span></div>
       <p className="start-hint"><span className="handwritten">P. S.</span>{copy.start.hint}</p>
